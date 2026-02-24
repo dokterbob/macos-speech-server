@@ -2,6 +2,7 @@ import Vapor
 
 func configure(_ app: Application) async throws {
     app.middleware = Middlewares()
+    app.middleware.use(RequestLoggingMiddleware())
     app.middleware.use(OpenAIErrorMiddleware())
 
     // TTS: stub for now (real implementation deferred)
