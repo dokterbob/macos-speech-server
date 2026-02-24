@@ -17,12 +17,10 @@ struct TranscriptionController: RouteCollection {
 
     @Sendable
     func handleTranscription(req: Request) async throws -> Response {
-        // 5a. Extract multipart boundary
         guard let boundary = req.headers.contentType?.parameters["boundary"] else {
             throw Abort(.badRequest, reason: "Missing multipart boundary in Content-Type")
         }
 
-        // 5b. Stream body to a temp file
         let bodyTempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(req.id).multipart")
         defer { try? FileManager.default.removeItem(at: bodyTempURL) }
@@ -46,25 +44,21 @@ struct TranscriptionController: RouteCollection {
         }
         outputStream.close()
 
-        // 5c. mmap-backed read and multipart parse
         let bodyData = try Data(contentsOf: bodyTempURL, options: .mappedIfSafe)
         var bodyBuffer = ByteBuffer()
         bodyBuffer.writeBytes(bodyData)
         let form = try FormDataDecoder().decode(TranscriptionRequest.self,
                                                 from: bodyBuffer, boundary: boundary)
 
-        // 5d. Determine correct extension from the parsed ByteBuffer
         let header = Data(form.file.data.getBytes(at: form.file.data.readerIndex,
                                                    length: min(12, form.file.data.readableBytes)) ?? [])
         let ext = audioFileExtension(filename: form.file.filename, header: header)
 
-        // 5e. Write audio to a temp file with the correct extension
         let audioTempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(req.id)\(ext)")
         defer { try? FileManager.default.removeItem(at: audioTempURL) }
         try Data(buffer: form.file.data).write(to: audioTempURL)
 
-        // 5f. Validate, log, transcribe
         guard form.file.data.readableBytes > 0 else {
             throw Abort(.badRequest, reason: "'file' must not be empty.")
         }
