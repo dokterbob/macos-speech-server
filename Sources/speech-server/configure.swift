@@ -7,8 +7,12 @@ func configure(_ app: Application) async throws {
     app.middleware.use(RequestLoggingMiddleware())
     app.middleware.use(OpenAIErrorMiddleware())
 
-    // TTS: stub for now (real implementation deferred)
-    app.ttsService = StubTTSService()
+    // TTS: FluidAudio PocketTTS
+    let ttsService = FluidTTSService()
+    app.logger.info("Loading TTS models (first run will download)...")
+    try await ttsService.initialize()
+    app.ttsService = ttsService
+    app.logger.info("TTS models loaded.")
 
     // STT: FluidAudio ASR
     let sttService = FluidSTTService()
