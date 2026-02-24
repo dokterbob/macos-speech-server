@@ -11,7 +11,7 @@ struct TranscriptionRequest: Content {
 
 struct TranscriptionController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
-        routes.post("audio", "transcriptions", use: handleTranscription)
+        routes.on(.POST, "audio", "transcriptions", body: .collect(maxSize: "25mb"), use: handleTranscription)
     }
 
     @Sendable
