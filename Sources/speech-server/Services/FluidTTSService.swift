@@ -21,19 +21,31 @@ final class FluidTTSService: TTSService, @unchecked Sendable {
             throw FluidTTSError.notInitialized
         }
         logger.notice("Synthesizing: \(text.prefix(80))...")
-        let audioData = try await manager.synthesize(text: text, voice: voice)
-        logger.notice("Synthesis done: \(audioData.count) bytes")
-        return audioData
+        do {
+            let audioData = try await manager.synthesize(text: text, voice: voice)
+            logger.notice("Synthesis done: \(audioData.count) bytes")
+            return audioData
+        } catch let loadError as PocketTtsConstantsLoader.LoadError {
+            switch loadError {
+            case .fileNotFound(let name) where name.hasSuffix("_audio_prompt"):
+                throw FluidTTSError.voiceNotFound(voice)
+            default:
+                throw loadError
+            }
+        }
     }
 }
 
 enum FluidTTSError: Error, CustomStringConvertible {
     case notInitialized
+    case voiceNotFound(String)
 
     var description: String {
         switch self {
         case .notInitialized:
             return "TTS service has not been initialized."
+        case .voiceNotFound(let voice):
+            return "Voice '\(voice)' is not available."
         }
     }
 }

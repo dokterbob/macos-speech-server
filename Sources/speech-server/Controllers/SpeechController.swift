@@ -26,10 +26,15 @@ struct SpeechController: RouteCollection {
             throw Abort(.badRequest, reason: "'response_format' must be 'wav' or 'pcm'.")
         }
 
-        var audioData = try await req.ttsService.synthesize(
-            text: speechReq.input,
-            voice: speechReq.resolvedVoice
-        )
+        var audioData: Data
+        do {
+            audioData = try await req.ttsService.synthesize(
+                text: speechReq.input,
+                voice: speechReq.resolvedVoice
+            )
+        } catch FluidTTSError.voiceNotFound(let voice) {
+            throw Abort(.badRequest, reason: "Voice '\(voice)' is not available. Supported voices: alba.")
+        }
 
         let contentType: HTTPMediaType
         if format == "pcm" {

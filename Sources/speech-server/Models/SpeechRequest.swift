@@ -7,7 +7,7 @@ struct SpeechRequest: Content {
     let response_format: String?
     let speed: Double?
 
-    var resolvedVoice: String { voice ?? "alloy" }
+    var resolvedVoice: String { voice ?? "alba" }
     var resolvedFormat: String { response_format ?? "wav" }
     var resolvedSpeed: Double { speed ?? 1.0 }
 }
