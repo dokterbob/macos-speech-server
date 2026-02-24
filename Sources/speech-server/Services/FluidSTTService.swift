@@ -23,7 +23,8 @@ final class FluidSTTService: STTService, @unchecked Sendable {
         }
         logger.notice("Transcribing: \(audioURL.lastPathComponent)")
         let result = try await asrManager.transcribe(audioURL, source: .system)
-        logger.notice("Transcription done: duration=\(result.duration)s text='\(result.text)'")
+        logger.notice("Transcription done: duration=\(result.duration)s")
+        logger.debug("Transcription text: '\(result.text)'")
         return TranscriptionResult(text: result.text, duration: result.duration)
     }
 }
