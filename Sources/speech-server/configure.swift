@@ -1,12 +1,18 @@
 import Vapor
 
-func configure(_ app: Application) throws {
+func configure(_ app: Application) async throws {
     app.middleware = Middlewares()
     app.middleware.use(OpenAIErrorMiddleware())
 
-    // Wire stub services (defaults, overridden in Phase 3 with real implementations)
+    // TTS: stub for now (real implementation deferred)
     app.ttsService = StubTTSService()
-    app.sttService = StubSTTService()
+
+    // STT: FluidAudio ASR
+    let sttService = FluidSTTService()
+    app.logger.info("Loading ASR models (first run will download ~minutes)...")
+    try await sttService.initialize()
+    app.sttService = sttService
+    app.logger.info("ASR models loaded. Server ready.")
 
     try routes(app)
 }
