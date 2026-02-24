@@ -15,6 +15,7 @@ A macOS-native HTTP server that exposes OpenAI-compatible speech API endpoints, 
 |-----------|---------|-------------------|
 | Web framework | [Vapor](https://github.com/vapor/vapor) | 4.76.0+ |
 | Speech-to-text | [FluidAudio](https://github.com/FluidInference/FluidAudio) | 0.7.9+ |
+| Multipart parsing | [multipart-kit](https://github.com/vapor/multipart-kit) | 4.0.0+ |
 
 **Platform:** macOS 14+, Swift 6.2
 
@@ -65,12 +66,28 @@ Both protocols require `Sendable` conformance.
 
 Routes are registered twice in `routes.swift` -- once at `/audio/*` and once at `/v1/audio/*` for OpenAI API compatibility. Both `SpeechController` and `TranscriptionController` implement `RouteCollection`.
 
+### Transcription upload pipeline
+
+`TranscriptionController` streams the request body directly to a temp file before any
+multipart parsing, keeping peak RAM at O(chunk_size) during upload:
+
+1. Body chunks are written via `OutputStream` to `<req.id>.multipart` in the temp directory.
+   An in-flight byte counter rejects uploads exceeding **500 MB** with `413 Payload Too Large`.
+2. The temp file is mmap-read (`Data(contentsOf:options:.mappedIfSafe)`) and decoded with
+   `FormDataDecoder` from MultipartKit.
+3. `audioFileExtension(filename:header:)` (see `AudioFormatDetection.swift`) determines the
+   correct extension from the filename or the first 12 magic bytes of the parsed `ByteBuffer`.
+4. The audio bytes are written to a second temp file (`<req.id><ext>`) with the correct
+   extension, then passed as a URL to the STT service. The controller owns both temp files
+   and cleans them up via `defer`.
+
 ### FluidAudio integration
 
-`FluidSTTService` wraps FluidAudio's `AsrManager`:
+`FluidSTTService` is a thin wrapper around FluidAudio's `AsrManager`:
 
 1. On init: downloads ASR models v3 (slow on first run, cached after).
-2. On transcribe: determines the correct file extension via `audioFileExtension(filename:data:)` -- first from the filename, then from magic byte sniffing (WAV, FLAC, MP3, M4A, AIFF); falls back to `.wav`. Writes audio `Data` to a temp file with that extension (required by `AVAudioFile` inside `AudioConverter`), calls `asrManager.transcribe(url, source: .system)`, cleans up.
+2. On transcribe: calls `asrManager.transcribe(audioURL, source: .system)` directly -- no
+   temp file writing or format detection (that all happens in the controller).
 3. Returns `TranscriptionResult` (text + duration) -- not a bare `String`.
 4. Must call `initialize()` before first use -- will throw `FluidSTTError.notInitialized` otherwise.
 
@@ -101,8 +118,8 @@ swift run speech-server
 ## Conventions
 
 - **Async middleware**: use `AsyncMiddleware` protocol (not the `EventLoopFuture`-based `Middleware`).
-- **Request body decoding**: Controllers use `req.content.decode()` for JSON, multipart is handled via `TranscriptionRequest` with `File` fields.
-- **Upload limit**: set to 25MB for the transcription endpoint via `app.routes.defaultMaxBodySize`.
+- **Request body decoding**: The transcription endpoint uses `body: .stream` and manually streams to disk, then decodes with `FormDataDecoder` from MultipartKit. Other controllers use `req.content.decode()` for JSON.
+- **Upload limit**: enforced mid-stream in `TranscriptionController` at **500 MB** via a running byte counter; throws `413 Payload Too Large` before the full body is buffered. Not set via `app.routes.defaultMaxBodySize`.
 - **Logging**: use `request.logger` in request context, `app.logger` during setup. Log level is set to `.notice` in `configure.swift` to suppress Vapor's internal debug noise. All operational log calls (request details, transcription progress) use `.notice`; use `.warning` or above for anomalies. Services that need their own logger (e.g. `FluidSTTService`) create a `Logger(label:)` instance with `logLevel` set explicitly.
-- **STTService protocol**: `transcribe(audioData:filename:)` returns `TranscriptionResult` (with `text` and `duration`), not a plain `String`. The `verbose_json` response includes a `segments` array matching the OpenAI API shape.
-- **Audio format detection**: `File.contentType` in Vapor is derived from the filename extension, not the multipart `Content-Type` header -- it will be `nil` for files without an extension. Always use `audioFileExtension(filename:data:)` in `FluidSTTService` to determine the temp file extension.
+- **STTService protocol**: `transcribe(audioURL: URL)` returns `TranscriptionResult` (with `text` and `duration`), not a plain `String`. The URL points to a temp file with the correct audio extension, created and cleaned up by the controller. The `verbose_json` response includes a `segments` array matching the OpenAI API shape.
+- **Audio format detection**: lives in `AudioFormatDetection.swift` as a package-internal free function `audioFileExtension(filename:header:)`. `header` is the first 12 bytes of the audio data (`Data`). Called from `TranscriptionController`, not from `FluidSTTService`. `File.contentType` in Vapor is derived from the filename extension and may be `nil` -- always use `audioFileExtension` instead.

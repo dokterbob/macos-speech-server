@@ -34,7 +34,7 @@ Content-Type: multipart/form-data
 
 | Field             | Type   | Required | Description                                       |
 |-------------------|--------|----------|---------------------------------------------------|
-| `file`            | File   | Yes      | Audio file (max 25MB)                              |
+| `file`            | File   | Yes      | Audio file (max 500 MB)                            |
 | `model`           | String | No       | Model name (e.g. `whisper-1`)                      |
 | `language`        | String | No       | ISO-639-1 language code                            |
 | `prompt`          | String | No       | Context hint for transcription                     |
@@ -97,6 +97,7 @@ Sources/speech-server/
   Services/
     STTService.swift            # STT protocol + DI
     FluidSTTService.swift       # FluidAudio ASR implementation
+    AudioFormatDetection.swift  # Magic-byte audio format detection
     TTSService.swift            # TTS protocol + DI (stub)
   Middleware/
     RequestLoggingMiddleware.swift  # Logs method, path, status code
