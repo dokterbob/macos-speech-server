@@ -12,6 +12,7 @@ struct OpenAIErrorMiddleware: AsyncMiddleware {
                 on: request
             )
         } catch {
+            request.logger.error("Unhandled error: \(String(reflecting: error))")
             return makeErrorResponse(
                 status: .internalServerError,
                 message: error.localizedDescription,
