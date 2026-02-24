@@ -1,3 +1,4 @@
+import Foundation
 import Vapor
 
 struct TranscriptionResult {
@@ -6,13 +7,13 @@ struct TranscriptionResult {
 }
 
 protocol STTService: Sendable {
-    func transcribe(audioData: Data, filename: String) async throws -> TranscriptionResult
+    func transcribe(audioURL: URL) async throws -> TranscriptionResult
 }
 
 struct StubSTTService: STTService {
-    func transcribe(audioData: Data, filename: String) async throws -> TranscriptionResult {
+    func transcribe(audioURL: URL) async throws -> TranscriptionResult {
         TranscriptionResult(
-            text: "[stub] Transcription of \(filename) (\(audioData.count) bytes)",
+            text: "[stub] Transcription of \(audioURL.lastPathComponent)",
             duration: 0.0
         )
     }
