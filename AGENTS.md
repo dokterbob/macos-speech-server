@@ -46,7 +46,7 @@ FluidAudio is a newer library with less community documentation. Use the DeepWik
 
 ### Middleware chain (order matters)
 
-1. `RequestLoggingMiddleware` -- logs `METHOD /path STATUS` at INFO level
+1. `RequestLoggingMiddleware` -- logs `METHOD /path STATUS` at NOTICE level
 2. `OpenAIErrorMiddleware` -- catches errors, returns OpenAI-format JSON
 
 ### Service layer (dependency injection)
@@ -70,8 +70,11 @@ Routes are registered twice in `routes.swift` -- once at `/audio/*` and once at 
 `FluidSTTService` wraps FluidAudio's `AsrManager`:
 
 1. On init: downloads ASR models v3 (slow on first run, cached after).
-2. On transcribe: writes audio `Data` to a temp file, calls `asrManager.transcribe(url, source: .system)`, cleans up.
-3. Must call `initialize()` before first use -- will throw `FluidSTTError.notInitialized` otherwise.
+2. On transcribe: determines the correct file extension via `audioFileExtension(filename:data:)` -- first from the filename, then from magic byte sniffing (WAV, FLAC, MP3, M4A, AIFF); falls back to `.wav`. Writes audio `Data` to a temp file with that extension (required by `AVAudioFile` inside `AudioConverter`), calls `asrManager.transcribe(url, source: .system)`, cleans up.
+3. Returns `TranscriptionResult` (text + duration) -- not a bare `String`.
+4. Must call `initialize()` before first use -- will throw `FluidSTTError.notInitialized` otherwise.
+
+`AsrManager.transcribe` resamples audio to 16 kHz mono Float32 internally; no pre-processing is needed. Use `source: .system` for file/API transcription, `source: .microphone` for live capture.
 
 ### Error handling
 
@@ -100,4 +103,6 @@ swift run speech-server
 - **Async middleware**: use `AsyncMiddleware` protocol (not the `EventLoopFuture`-based `Middleware`).
 - **Request body decoding**: Controllers use `req.content.decode()` for JSON, multipart is handled via `TranscriptionRequest` with `File` fields.
 - **Upload limit**: set to 25MB for the transcription endpoint via `app.routes.defaultMaxBodySize`.
-- **Logging**: use `request.logger` in request context, `app.logger` during setup.
+- **Logging**: use `request.logger` in request context, `app.logger` during setup. Log level is set to `.notice` in `configure.swift` to suppress Vapor's internal debug noise. All operational log calls (request details, transcription progress) use `.notice`; use `.warning` or above for anomalies. Services that need their own logger (e.g. `FluidSTTService`) create a `Logger(label:)` instance with `logLevel` set explicitly.
+- **STTService protocol**: `transcribe(audioData:filename:)` returns `TranscriptionResult` (with `text` and `duration`), not a plain `String`. The `verbose_json` response includes a `segments` array matching the OpenAI API shape.
+- **Audio format detection**: `File.contentType` in Vapor is derived from the filename extension, not the multipart `Content-Type` header -- it will be `nil` for files without an extension. Always use `audioFileExtension(filename:data:)` in `FluidSTTService` to determine the temp file extension.
