@@ -10,15 +10,6 @@ protocol STTService: Sendable {
     func transcribe(audioURL: URL) async throws -> TranscriptionResult
 }
 
-struct StubSTTService: STTService {
-    func transcribe(audioURL: URL) async throws -> TranscriptionResult {
-        TranscriptionResult(
-            text: "[stub] Transcription of \(audioURL.lastPathComponent)",
-            duration: 0.0
-        )
-    }
-}
-
 // MARK: - Vapor DI
 
 struct STTServiceKey: StorageKey {
@@ -27,7 +18,7 @@ struct STTServiceKey: StorageKey {
 
 extension Application {
     var sttService: any STTService {
-        get { storage[STTServiceKey.self] ?? StubSTTService() }
+        get { storage[STTServiceKey.self]! }
         set { storage[STTServiceKey.self] = newValue }
     }
 }
