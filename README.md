@@ -17,7 +17,7 @@ swift build
 swift run speech-server
 ```
 
-On first launch, ASR models (~v3) are downloaded automatically. This takes several minutes but only happens once; subsequent starts are fast.
+On first launch, ASR and TTS models are downloaded automatically. This takes several minutes but only happens once; subsequent starts are fast.
 
 The server listens on `http://localhost:8080` by default.
 
@@ -67,7 +67,7 @@ curl -X POST http://localhost:8080/v1/audio/transcriptions \
   -F file=@recording.wav -F model=whisper-1 -F response_format=verbose_json
 ```
 
-### Text-to-Speech (stub)
+### Text-to-Speech
 
 ```
 POST /v1/audio/speech
@@ -78,11 +78,24 @@ Content-Type: application/json
 |-------------------|--------|----------|---------------------------------------------------|
 | `model`           | String | Yes      | Model name (e.g. `tts-1`)                          |
 | `input`           | String | Yes      | Text to synthesize (max 4096 chars)                |
-| `voice`           | String | No       | Voice name (default: `alloy`)                      |
+| `voice`           | String | No       | Voice name (default: `alba`). Only `alba` is currently supported. |
 | `response_format` | String | No       | `wav` (default) or `pcm`                           |
 | `speed`           | Double | No       | Playback speed, 0.25-4.0 (default: 1.0)           |
 
-> TTS currently returns silent audio. Real implementation is planned.
+Example:
+
+```bash
+curl -X POST http://localhost:8080/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{"model":"tts-1","input":"Hello, world!"}' \
+  --output speech.wav
+
+# Explicit voice and PCM output
+curl -X POST http://localhost:8080/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{"model":"tts-1","input":"Hello, world!","voice":"alba","response_format":"pcm"}' \
+  --output speech.pcm
+```
 
 ## Project structure
 
@@ -98,7 +111,8 @@ Sources/speech-server/
     STTService.swift            # STT protocol + DI
     FluidSTTService.swift       # FluidAudio ASR implementation
     AudioFormatDetection.swift  # Magic-byte audio format detection
-    TTSService.swift            # TTS protocol + DI (stub)
+    TTSService.swift            # TTS protocol + DI
+    FluidTTSService.swift       # FluidAudio PocketTTS implementation
   Middleware/
     RequestLoggingMiddleware.swift  # Logs method, path, status code
     OpenAIErrorMiddleware.swift    # OpenAI-format error responses

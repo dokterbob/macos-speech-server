@@ -7,7 +7,7 @@ Essential knowledge for AI agents working on this codebase.
 A macOS-native HTTP server that exposes OpenAI-compatible speech API endpoints, running entirely on-device. Built with Vapor (Swift web framework) and FluidAudio (on-device ASR via Apple's Neural Engine).
 
 - **STT** is fully implemented using FluidAudio's `AsrManager`.
-- **TTS** is stubbed -- `StubTTSService` returns silent WAV data. Real implementation is pending.
+- **TTS** is fully implemented using FluidAudio's `PocketTtsManager`. Only the `alba` voice is available; requesting any other voice returns a 400.
 
 ## Tech stack
 
@@ -93,6 +93,19 @@ multipart parsing, keeping peak RAM at O(chunk_size) during upload:
 
 `AsrManager.transcribe` resamples audio to 16 kHz mono Float32 internally; no pre-processing is needed. Use `source: .system` for file/API transcription, `source: .microphone` for live capture.
 
+### FluidTTSService
+
+`FluidTTSService` wraps FluidAudio's `PocketTtsManager`:
+
+1. On init: downloads PocketTTS models (slow on first run, cached after).
+2. On synthesize: calls `pocketTtsManager.synthesize(text:voice:)` -- returns WAV `Data`.
+3. Must call `initialize()` before first use -- will throw `FluidTTSError.notInitialized` otherwise.
+4. Catches `PocketTtsConstantsLoader.LoadError.fileNotFound` for `*_audio_prompt` files and
+   re-throws as `FluidTTSError.voiceNotFound(voice)`. `SpeechController` converts this to a
+   400 `Abort` with the message "Voice '\(voice)' is not available. Supported voices: alba."
+
+The only built-in voice is `"alba"`. `SpeechRequest.resolvedVoice` defaults to `"alba"`.
+
 ### Error handling
 
 All errors are caught by `OpenAIErrorMiddleware` and returned as:
@@ -123,3 +136,4 @@ swift run speech-server
 - **Logging**: use `request.logger` in request context, `app.logger` during setup. Log level is set to `.notice` in `configure.swift` to suppress Vapor's internal debug noise. All operational log calls (request details, transcription progress) use `.notice`; use `.warning` or above for anomalies. Services that need their own logger (e.g. `FluidSTTService`) create a `Logger(label:)` instance with `logLevel` set explicitly.
 - **STTService protocol**: `transcribe(audioURL: URL)` returns `TranscriptionResult` (with `text` and `duration`), not a plain `String`. The URL points to a temp file with the correct audio extension, created and cleaned up by the controller. The `verbose_json` response includes a `segments` array matching the OpenAI API shape.
 - **Audio format detection**: lives in `AudioFormatDetection.swift` as a package-internal free function `audioFileExtension(filename:header:)`. `header` is the first 12 bytes of the audio data (`Data`). Called from `TranscriptionController`, not from `FluidSTTService`. `File.contentType` in Vapor is derived from the filename extension and may be `nil` -- always use `audioFileExtension` instead.
+- **TTS voice validation**: `FluidTTSService` catches `PocketTtsConstantsLoader.LoadError.fileNotFound` for missing `*_audio_prompt` assets and throws `FluidTTSError.voiceNotFound(voice)`. `SpeechController` catches this and throws `Abort(.badRequest)`. Do not let unknown voice errors reach `OpenAIErrorMiddleware` as unhandled 500s.
