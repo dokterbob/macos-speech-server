@@ -38,14 +38,33 @@ Content-Type: multipart/form-data
 | `model`           | String | No       | Model name (e.g. `whisper-1`)                      |
 | `language`        | String | No       | ISO-639-1 language code                            |
 | `prompt`          | String | No       | Context hint for transcription                     |
-| `response_format` | String | No       | `json` (default), `text`, or `verbose_json`        |
+| `response_format` | String | No       | `json` (default), `text`, or `verbose_json`; `srt`/`vtt` return 400 |
 | `temperature`     | Double | No       | Sampling temperature, 0.0-1.0                      |
+
+Supported audio formats: WAV, MP3, M4A, FLAC, AIFF, OGG. Files without a recognised extension are identified automatically via magic bytes.
+
+No API key is required. If your client sends an `Authorization` header it is silently ignored.
+
+The `verbose_json` response includes a `segments` array and real `duration` from the ASR engine, matching the OpenAI API shape:
+
+```json
+{
+  "task": "transcribe",
+  "language": "en",
+  "duration": 1.54,
+  "text": "Hello world.",
+  "segments": [{ "id": 0, "seek": 0, "start": 0.0, "end": 1.54, "text": "Hello world.", ... }]
+}
+```
 
 Example:
 
 ```bash
 curl -X POST http://localhost:8080/v1/audio/transcriptions \
   -F file=@recording.wav -F model=whisper-1
+
+curl -X POST http://localhost:8080/v1/audio/transcriptions \
+  -F file=@recording.wav -F model=whisper-1 -F response_format=verbose_json
 ```
 
 ### Text-to-Speech (stub)
