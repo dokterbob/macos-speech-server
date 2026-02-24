@@ -1,6 +1,8 @@
 import Vapor
 
 func configure(_ app: Application) async throws {
+    app.logger.logLevel = .notice
+
     app.middleware = Middlewares()
     app.middleware.use(RequestLoggingMiddleware())
     app.middleware.use(OpenAIErrorMiddleware())

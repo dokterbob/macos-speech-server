@@ -30,33 +30,51 @@ struct TranscriptionController: RouteCollection {
         }
 
         let responseFormat = form.response_format ?? "json"
+
+        req.logger.notice("Transcription upload: filename=\(form.file.filename), contentType=\(form.file.contentType?.serialize() ?? "nil"), size=\(fileData.count) bytes, response_format=\(responseFormat)")
         let filename = form.file.filename
 
-        let text = try await req.sttService.transcribe(
+        let result = try await req.sttService.transcribe(
             audioData: fileData,
             filename: filename
         )
 
         switch responseFormat {
+        case "json":
+            let json = TranscriptionResponseJSON(text: result.text)
+            let response = Response(status: .ok)
+            try response.content.encode(json, as: .json)
+            return response
         case "text":
-            let response = Response(status: .ok, body: .init(string: text))
+            let response = Response(status: .ok, body: .init(string: result.text))
             response.headers.contentType = .plainText
             return response
         case "verbose_json":
+            let segment = TranscriptionSegment(
+                id: 0,
+                seek: 0,
+                start: 0.0,
+                end: result.duration,
+                text: result.text,
+                temperature: 0.0,
+                avg_logprob: 0.0,
+                compression_ratio: 1.0,
+                no_speech_prob: 0.0
+            )
             let verbose = TranscriptionResponseVerbose(
                 task: "transcribe",
                 language: form.language ?? "en",
-                duration: 0.0,
-                text: text
+                duration: result.duration,
+                text: result.text,
+                segments: [segment]
             )
             let response = Response(status: .ok)
             try response.content.encode(verbose, as: .json)
             return response
-        default: // "json"
-            let json = TranscriptionResponseJSON(text: text)
-            let response = Response(status: .ok)
-            try response.content.encode(json, as: .json)
-            return response
+        case "srt", "vtt":
+            throw Abort(.badRequest, reason: "response_format '\(responseFormat)' is not yet supported.")
+        default:
+            throw Abort(.badRequest, reason: "Unknown response_format '\(responseFormat)'. Supported: json, text, verbose_json.")
         }
     }
 }
