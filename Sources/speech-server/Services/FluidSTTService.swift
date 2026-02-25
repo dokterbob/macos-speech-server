@@ -39,8 +39,44 @@ final class FluidSTTService: STTService, @unchecked Sendable {
 
         logger.notice("Transcription done: duration=\(result.duration)s")
         logger.debug("Transcription text: '\(result.text)'")
-        return TranscriptionResult(text: result.text, duration: result.duration)
+
+        let words = mergeTokensIntoWords(result.tokenTimings ?? [])
+
+        return TranscriptionResult(text: result.text, duration: result.duration, words: words)
     }
+}
+
+// Replicates WordTimingMerger.mergeTokensIntoWords from FluidAudioCLI (not exported by the core library).
+// Tokens use leading spaces as word boundaries (SentencePiece-style, normalised by AsrManager).
+private func mergeTokensIntoWords(_ tokenTimings: [TokenTiming]) -> [WordTiming] {
+    guard !tokenTimings.isEmpty else { return [] }
+    var result: [WordTiming] = []
+    var currentWord = ""
+    var currentStart: TimeInterval?
+    var currentEnd: TimeInterval = 0
+
+    for timing in tokenTimings {
+        if timing.token.hasPrefix(" ") || timing.token.hasPrefix("\n") || timing.token.hasPrefix("\t") {
+            if !currentWord.isEmpty, let start = currentStart {
+                result.append(WordTiming(word: currentWord, start: start.rounded3, end: currentEnd.rounded3))
+            }
+            currentWord = timing.token.trimmingCharacters(in: .whitespacesAndNewlines)
+            currentStart = timing.startTime
+            currentEnd = timing.endTime
+        } else {
+            if currentStart == nil { currentStart = timing.startTime }
+            currentWord += timing.token
+            currentEnd = timing.endTime
+        }
+    }
+    if !currentWord.isEmpty, let start = currentStart {
+        result.append(WordTiming(word: currentWord, start: start.rounded3, end: currentEnd.rounded3))
+    }
+    return result
+}
+
+private extension Double {
+    var rounded3: Double { (self * 1000).rounded() / 1000 }
 }
 
 enum FluidSTTError: Error, CustomStringConvertible {

@@ -1,9 +1,16 @@
 import Foundation
 import Vapor
 
+struct WordTiming {
+    let word: String
+    let start: Double
+    let end: Double
+}
+
 struct TranscriptionResult {
     let text: String
     let duration: Double
+    let words: [WordTiming]
 }
 
 protocol STTService: Sendable {

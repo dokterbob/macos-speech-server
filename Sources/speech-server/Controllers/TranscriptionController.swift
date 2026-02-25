@@ -134,11 +134,13 @@ struct TranscriptionController: RouteCollection {
                 compression_ratio: 1.0,
                 no_speech_prob: 0.0
             )
+            let words = result.words.map { TranscriptionWord(word: $0.word, start: $0.start, end: $0.end) }
             let verbose = TranscriptionResponseVerbose(
                 task: "transcribe",
                 language: language ?? "en",
                 duration: result.duration,
                 text: result.text,
+                words: words,
                 segments: [segment]
             )
             let response = Response(status: .ok)
