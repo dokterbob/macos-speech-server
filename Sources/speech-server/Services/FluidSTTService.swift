@@ -54,11 +54,11 @@ final class FluidSTTService: STTService, @unchecked Sendable {
         for chunkOffset in stride(from: 0, to: totalSamples, by: chunkSize) {
             let count = min(chunkSize, totalSamples - chunkOffset)
             try diskSource.copySamples(into: &chunk, offset: chunkOffset, count: count)
-            if count < chunkSize {
-                for i in count..<chunkSize { chunk[i] = 0 }
-            }
+            // Pass actual-length slice for last chunk so FluidAudio applies
+            // repeat-last-sample padding (not our zero-padding)
+            let vadChunk = count == chunkSize ? chunk : Array(chunk[..<count])
             let streamResult = try await vadManager.processStreamingChunk(
-                chunk, state: vadStreamState
+                vadChunk, state: vadStreamState
             )
             vadStreamState = streamResult.state
             vadResults.append(VadResult(
@@ -86,7 +86,10 @@ final class FluidSTTService: STTService, @unchecked Sendable {
             let segLength = endSample - startSample
             guard segLength >= 160 else { continue }
 
-            var slicedSamples = [Float](repeating: 0, count: segLength)
+            // ASR requires >= 16,000 samples (1 second); pad shorter segments with silence.
+            // The model handles silence padding natively, so transcription quality is unaffected.
+            let paddedLength = max(segLength, 16_000)
+            var slicedSamples = [Float](repeating: 0, count: paddedLength)
             try diskSource.copySamples(into: &slicedSamples, offset: startSample, count: segLength)
             let result = try await asrManager.transcribe(slicedSamples, source: .system)
 
