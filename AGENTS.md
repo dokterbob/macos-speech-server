@@ -83,15 +83,25 @@ multipart parsing, keeping peak RAM at O(chunk_size) during upload:
 
 ### FluidAudio integration
 
-`FluidSTTService` is a thin wrapper around FluidAudio's `AsrManager`:
+`FluidSTTService` wraps FluidAudio's `AsrManager` and `VadManager`:
 
-1. On init: downloads ASR models v3 (slow on first run, cached after).
-2. On transcribe: calls `asrManager.transcribe(audioURL, source: .system)` directly -- no
-   temp file writing or format detection (that all happens in the controller).
-3. Returns `TranscriptionResult` (text + duration) -- not a bare `String`.
+1. On init: downloads ASR models v3 and loads VAD model (slow on first run, cached after).
+2. On transcribe: converts audio to 16 kHz mono Float32 via `DiskBackedAudioSampleSource`
+   (streaming, O(chunk) RAM), runs VAD in 4096-sample chunks to find speech segments, then
+   calls `asrManager.transcribe([Float], source: .system)` on each segment.
+3. Returns `TranscriptionResult` (text + duration + words + segments) -- not a bare `String`.
 4. Must call `initialize()` before first use -- will throw `FluidSTTError.notInitialized` otherwise.
 
-`AsrManager.transcribe` resamples audio to 16 kHz mono Float32 internally; no pre-processing is needed. Use `source: .system` for file/API transcription, `source: .microphone` for live capture.
+**VAD streaming constraints:**
+- The last chunk passed to `vadManager.processStreamingChunk` must be the *actual* sample
+  count (not zero-padded to `chunkSize`). FluidAudio applies repeat-last-sample padding
+  internally; passing zeros creates an artificial silence cliff that causes premature
+  speech-end detection and shorter segments.
+- `asrManager.transcribe` requires **>= 16,000 samples** (1 second). VAD segments shorter
+  than this must be zero-padded to 16,000 before the call or it throws `ASRError.invalidAudioData`.
+  Zero-padding the tail is safe -- the model handles trailing silence natively.
+
+Use `source: .system` for file/API transcription, `source: .microphone` for live capture.
 
 ### FluidTTSService
 
@@ -137,3 +147,4 @@ swift run speech-server
 - **STTService protocol**: `transcribe(audioURL: URL)` returns `TranscriptionResult` (with `text` and `duration`), not a plain `String`. The URL points to a temp file with the correct audio extension, created and cleaned up by the controller. The `verbose_json` response includes a `segments` array matching the OpenAI API shape.
 - **Audio format detection**: lives in `AudioFormatDetection.swift` as a package-internal free function `audioFileExtension(filename:header:)`. `header` is the first 12 bytes of the audio data (`Data`). Called from `TranscriptionController`, not from `FluidSTTService`. `File.contentType` in Vapor is derived from the filename extension and may be `nil` -- always use `audioFileExtension` instead.
 - **TTS voice validation**: `FluidTTSService` catches `PocketTtsConstantsLoader.LoadError.fileNotFound` for missing `*_audio_prompt` assets and throws `FluidTTSError.voiceNotFound(voice)`. `SpeechController` catches this and throws `Abort(.badRequest)`. Do not let unknown voice errors reach `OpenAIErrorMiddleware` as unhandled 500s.
+- **Keeping docs in sync**: When making any user-visible change (new endpoint, changed behaviour, new field, new error), update `README.md`. When making any architectural change (new service, new constraint, new convention, new gotcha), update `CLAUDE.md`. Both files should be updated in the same commit as the code change.
