@@ -27,6 +27,6 @@ struct TranscriptionResponseVerbose: Content {
     let language: String
     let duration: Double
     let text: String
-    let words: [TranscriptionWord]
-    let segments: [TranscriptionSegment]
+    let words: [TranscriptionWord]?
+    let segments: [TranscriptionSegment]?
 }

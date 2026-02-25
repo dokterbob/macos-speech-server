@@ -7,10 +7,19 @@ struct WordTiming {
     let end: Double
 }
 
+struct SegmentResult {
+    let text: String
+    let start: Double
+    let end: Double
+    let words: [WordTiming]
+    let confidence: Float
+}
+
 struct TranscriptionResult {
     let text: String
     let duration: Double
     let words: [WordTiming]
+    let segments: [SegmentResult]
 }
 
 protocol STTService: Sendable {

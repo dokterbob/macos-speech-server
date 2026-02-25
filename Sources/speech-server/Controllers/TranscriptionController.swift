@@ -68,6 +68,11 @@ struct TranscriptionController: RouteCollection {
             if state.currentFieldName == "file" {
                 state.fileOutputStream?.close()
                 state.fileOutputStream = nil
+            } else if let fieldName = state.currentFieldName,
+                      var buf = state.fieldBuffers[fieldName],
+                      let value = buf.readString(length: buf.readableBytes) {
+                state.fieldValues[fieldName, default: []].append(value)
+                state.fieldBuffers.removeValue(forKey: fieldName)
             }
             state.currentFieldName = nil
             state.currentFileName = nil
@@ -108,6 +113,20 @@ struct TranscriptionController: RouteCollection {
             }
         }
 
+        // Parse timestamp_granularities[] — only meaningful for verbose_json
+        let rawGranularities = state.arrayField("timestamp_granularities[]")
+        let granularities: Set<String>
+        if rawGranularities.isEmpty {
+            granularities = ["segment"]
+        } else {
+            for value in rawGranularities {
+                guard value == "word" || value == "segment" else {
+                    throw Abort(.badRequest, reason: "Invalid timestamp_granularities value '\(value)'. Supported: word, segment.")
+                }
+            }
+            granularities = Set(rawGranularities)
+        }
+
         req.logger.notice("Transcription upload: filename=\(filename), size=\(state.fileSize) bytes, response_format=\(responseFormat)")
 
         let result = try await req.sttService.transcribe(audioURL: audioTempURL)
@@ -123,25 +142,31 @@ struct TranscriptionController: RouteCollection {
             response.headers.contentType = .plainText
             return response
         case "verbose_json":
-            let segment = TranscriptionSegment(
-                id: 0,
-                seek: 0,
-                start: 0.0,
-                end: result.duration,
-                text: result.text,
-                temperature: 0.0,
-                avg_logprob: 0.0,
-                compression_ratio: 1.0,
-                no_speech_prob: 0.0
-            )
-            let words = result.words.map { TranscriptionWord(word: $0.word, start: $0.start, end: $0.end) }
+            let segments: [TranscriptionSegment]? = granularities.contains("segment")
+                ? result.segments.enumerated().map { index, seg in
+                    TranscriptionSegment(
+                        id: index,
+                        seek: Int(seg.start * 100),
+                        start: seg.start,
+                        end: seg.end,
+                        text: seg.text,
+                        temperature: 0.0,
+                        avg_logprob: log(Double(max(seg.confidence, 1e-6))),
+                        compression_ratio: 1.0,
+                        no_speech_prob: 0.0
+                    )
+                }
+                : nil
+            let words: [TranscriptionWord]? = granularities.contains("word")
+                ? result.words.map { TranscriptionWord(word: $0.word, start: $0.start, end: $0.end) }
+                : nil
             let verbose = TranscriptionResponseVerbose(
                 task: "transcribe",
                 language: language ?? "en",
                 duration: result.duration,
                 text: result.text,
                 words: words,
-                segments: [segment]
+                segments: segments
             )
             let response = Response(status: .ok)
             try response.content.encode(verbose, as: .json)
@@ -160,6 +185,7 @@ private final class MultipartParseState {
     var currentFieldName: String?
     var currentFileName: String?
     var fieldBuffers: [String: ByteBuffer] = [:]
+    var fieldValues: [String: [String]] = [:]
     var fileOutputStream: OutputStream?
     var fileTempURL: URL?
     var uploadedFileName: String?
@@ -167,8 +193,11 @@ private final class MultipartParseState {
     var fileSize = 0
 
     func stringField(_ name: String) -> String? {
-        guard var buf = fieldBuffers[name] else { return nil }
-        return buf.readString(length: buf.readableBytes)
+        return fieldValues[name]?.last
+    }
+
+    func arrayField(_ name: String) -> [String] {
+        return fieldValues[name] ?? []
     }
 
     func cleanup() {
