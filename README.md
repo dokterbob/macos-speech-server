@@ -82,6 +82,8 @@ Content-Type: application/json
 | `response_format` | String | No       | `wav` (default) or `pcm`                           |
 | `speed`           | Double | No       | Playback speed, 0.25-4.0 (default: 1.0)           |
 
+The response is **streamed**: audio begins arriving before synthesis is complete, sentence by sentence. WAV responses include a standard 44-byte header (with unknown-size placeholders) followed by 16-bit PCM at 24 kHz mono; PCM responses are raw 16-bit bytes.
+
 Example:
 
 ```bash

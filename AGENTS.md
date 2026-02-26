@@ -108,13 +108,30 @@ Use `source: .system` for file/API transcription, `source: .microphone` for live
 `FluidTTSService` wraps FluidAudio's `PocketTtsManager`:
 
 1. On init: downloads PocketTTS models (slow on first run, cached after).
-2. On synthesize: calls `pocketTtsManager.synthesize(text:voice:)` -- returns WAV `Data`.
-3. Must call `initialize()` before first use -- will throw `FluidTTSError.notInitialized` otherwise.
-4. Catches `PocketTtsConstantsLoader.LoadError.fileNotFound` for `*_audio_prompt` files and
-   re-throws as `FluidTTSError.voiceNotFound(voice)`. `SpeechController` converts this to a
-   400 `Abort` with the message "Voice '\(voice)' is not available. Supported voices: alba."
+2. On synthesize (`synthesize`): pre-processes text with `NLTokenizer` (`.sentence` unit) to
+   ensure every sentence ends with `.!?`, then passes the result to a **single**
+   `manager.synthesize()` call. The library chunks at sentence boundaries (preferred over word
+   boundaries), and Mimi state stays continuous across all chunks for seamless audio.
+3. On streaming (`synthesizeStream`): splits text into sentences with `NLTokenizer`, calls
+   `manager.synthesizeDetailed()` once per sentence, yields raw 16-bit PCM chunks (no WAV
+   header). Mimi state resets between sentences, which is imperceptible at natural breaks.
+4. Must call `initialize()` before first use -- will throw `FluidTTSError.notInitialized` otherwise.
+5. Catches `PocketTtsConstantsLoader.LoadError.fileNotFound` for `*_audio_prompt` files and
+   re-throws as `FluidTTSError.voiceNotFound(voice)`.
 
 The only built-in voice is `"alba"`. `SpeechRequest.resolvedVoice` defaults to `"alba"`.
+
+**PocketTTS chunking gotcha**: when text exceeds 50 tokens PocketTTS splits it into chunks,
+applying `normalizeText()` to each chunk (capitalises first letter, appends period). If a chunk
+starts mid-sentence this produces prosodic restarts ("reads parts of words separately"). The fix
+is to ensure the text arriving at `manager.synthesize()` already has terminal punctuation at
+every sentence boundary so the library always prefers `.!?` splits over word-boundary splits.
+
+**Speech response streaming**: `SpeechController` uses Vapor's `asyncStream` body with
+`count: -1` (chunked transfer encoding). WAV responses include a 44-byte streaming header with
+`0x7FFFFFFF` size placeholders; PCM responses stream raw int16 bytes. Voice validation is done
+**before** the stream starts (via `guard voice == "alba"`) because once response headers are
+sent the status code cannot be changed to 4xx.
 
 ### Error handling
 
@@ -146,5 +163,5 @@ swift run speech-server
 - **Logging**: use `request.logger` in request context, `app.logger` during setup. Log level is set to `.notice` in `configure.swift` to suppress Vapor's internal debug noise. All operational log calls (request details, transcription progress) use `.notice`; use `.warning` or above for anomalies. Services that need their own logger (e.g. `FluidSTTService`) create a `Logger(label:)` instance with `logLevel` set explicitly.
 - **STTService protocol**: `transcribe(audioURL: URL)` returns `TranscriptionResult` (with `text` and `duration`), not a plain `String`. The URL points to a temp file with the correct audio extension, created and cleaned up by the controller. The `verbose_json` response includes a `segments` array matching the OpenAI API shape.
 - **Audio format detection**: lives in `AudioFormatDetection.swift` as a package-internal free function `audioFileExtension(filename:header:)`. `header` is the first 12 bytes of the audio data (`Data`). Called from `TranscriptionController`, not from `FluidSTTService`. `File.contentType` in Vapor is derived from the filename extension and may be `nil` -- always use `audioFileExtension` instead.
-- **TTS voice validation**: `FluidTTSService` catches `PocketTtsConstantsLoader.LoadError.fileNotFound` for missing `*_audio_prompt` assets and throws `FluidTTSError.voiceNotFound(voice)`. `SpeechController` catches this and throws `Abort(.badRequest)`. Do not let unknown voice errors reach `OpenAIErrorMiddleware` as unhandled 500s.
+- **TTS voice validation**: `SpeechController` validates the voice with `guard voice == "alba"` before starting the stream (response headers already sent → can't return 4xx after). `FluidTTSService` still catches `PocketTtsConstantsLoader.LoadError.fileNotFound` and re-throws as `FluidTTSError.voiceNotFound` as a safety net for unknown errors, but this should only be reached if the guard is missing.
 - **Keeping docs in sync**: When making any user-visible change (new endpoint, changed behaviour, new field, new error), update `README.md`. When making any architectural change (new service, new constraint, new convention, new gotcha), update `CLAUDE.md`. Both files should be updated in the same commit as the code change.
