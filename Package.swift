@@ -10,6 +10,9 @@ let package = Package(
         .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.7.9"),
         .package(url: "https://github.com/vapor/multipart-kit.git", from: "4.0.0"),
         .package(url: "https://github.com/jpsim/Yams.git", from: "6.0.1"),
+        // Pin to <1.1.0: swift-configuration 1.1.0 uses Data.bytes which only exists on macOS 26+.
+        // async-http-client (transitive via vapor) accepts from: "1.0.0", so 1.0.x satisfies it.
+        .package(url: "https://github.com/apple/swift-configuration.git", .upToNextMinor(from: "1.0.0")),
     ],
     targets: [
         .executableTarget(
