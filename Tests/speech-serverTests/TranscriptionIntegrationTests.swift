@@ -16,14 +16,15 @@ final class TranscriptionIntegrationTests: XCTestCase {
 
     // MARK: - Fixture helpers
 
-    private var fixtureWAV: Data {
-        get throws {
-            let url = try XCTUnwrap(
-                Bundle.module.url(forResource: "test", withExtension: "wav", subdirectory: "Fixtures")
-            )
-            return try Data(contentsOf: url)
-        }
+    private func fixture(_ name: String, _ ext: String) throws -> Data {
+        let url = try XCTUnwrap(
+            Bundle.module.url(forResource: name, withExtension: ext, subdirectory: "Fixtures"),
+            "Fixture '\(name).\(ext)' not found in bundle"
+        )
+        return try Data(contentsOf: url)
     }
+
+    private var fixtureWAV: Data { get throws { try fixture("test", "wav") } }
 
     private func transcriptionBody(
         file: Data,
@@ -120,6 +121,50 @@ final class TranscriptionIntegrationTests: XCTestCase {
             XCTAssertEqual(res.status, .ok)
             let decoded = try res.content.decode(TranscriptionResponseJSON.self)
             XCTAssertFalse(decoded.text.isEmpty)
+        }
+    }
+
+    // MARK: - Format coverage
+
+    func testAIFFTranscription() async throws {
+        let aiff = try fixture("test", "aiff")
+        let body = transcriptionBody(file: aiff, filename: "test.aiff")
+
+        try await app.test(.POST, "/audio/transcriptions",
+            headers: transcriptionHeaders(),
+            body: ByteBuffer(data: body)
+        ) { res async throws in
+            XCTAssertEqual(res.status, .ok)
+            let decoded = try res.content.decode(TranscriptionResponseJSON.self)
+            XCTAssertFalse(decoded.text.isEmpty, "AIFF transcription should produce non-empty text")
+        }
+    }
+
+    func testLongM4ATranscription() async throws {
+        let m4a = try fixture("test_long", "m4a")
+        let body = transcriptionBody(file: m4a, filename: "test_long.m4a")
+
+        try await app.test(.POST, "/audio/transcriptions",
+            headers: transcriptionHeaders(),
+            body: ByteBuffer(data: body)
+        ) { res async throws in
+            XCTAssertEqual(res.status, .ok)
+            let decoded = try res.content.decode(TranscriptionResponseJSON.self)
+            XCTAssertFalse(decoded.text.isEmpty, "Long M4A transcription should produce non-empty text")
+        }
+    }
+
+    func testLongWAVTranscription() async throws {
+        let wav = try fixture("test_long", "wav")
+        let body = transcriptionBody(file: wav, filename: "test_long.wav")
+
+        try await app.test(.POST, "/audio/transcriptions",
+            headers: transcriptionHeaders(),
+            body: ByteBuffer(data: body)
+        ) { res async throws in
+            XCTAssertEqual(res.status, .ok)
+            let verbose = try res.content.decode(TranscriptionResponseJSON.self)
+            XCTAssertFalse(verbose.text.isEmpty, "Long WAV transcription should produce non-empty text")
         }
     }
 
