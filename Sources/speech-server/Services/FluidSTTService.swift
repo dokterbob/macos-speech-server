@@ -11,8 +11,8 @@ final class FluidSTTService: STTService, @unchecked Sendable {
         return l
     }()
 
-    func initialize() async throws {
-        let models = try await AsrModels.downloadAndLoad(version: .v3)
+    func initialize(modelVersion: AsrModelVersion = .v3) async throws {
+        let models = try await AsrModels.downloadAndLoad(version: modelVersion)
         let manager = AsrManager(config: .default)
         try await manager.initialize(models: models)
         self.asrManager = manager

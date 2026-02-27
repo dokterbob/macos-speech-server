@@ -1,4 +1,5 @@
 import Vapor
+import FluidAudio
 
 func configure(_ app: Application) async throws {
     let config = try ServerConfig.load()
@@ -32,10 +33,16 @@ func configure(_ app: Application) async throws {
 
     // STT engine selection
     switch config.stt.engine {
-    case .fluidAsr:
+    case .parakeet:
         let sttService = FluidSTTService()
-        app.logger.info("Loading ASR models (first run will download ~minutes)...")
-        try await sttService.initialize()
+        let modelVersionStr = config.stt.parakeet?.modelVersion ?? "v3"
+        let modelVersion: AsrModelVersion = switch modelVersionStr {
+        case "v2": .v2
+        case "v3": .v3
+        default: throw Abort(.internalServerError, reason: "Unknown STT model_version '\(modelVersionStr)'; valid values are 'v2' and 'v3'.")
+        }
+        app.logger.info("Loading ASR models (Parakeet \(modelVersionStr), first run will download ~minutes)...")
+        try await sttService.initialize(modelVersion: modelVersion)
         app.sttService = sttService
         app.logger.info("ASR models loaded. Server ready.")
     }

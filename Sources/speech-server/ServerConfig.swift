@@ -81,30 +81,32 @@ struct ServerSettings: Codable, Sendable {
 
 struct STTConfig: Codable, Sendable {
     var engine: STTEngine
-    var fluidAsr: FluidASRSettings?
+    var parakeet: ParakeetSettings?
 
     init() {
-        engine  = .fluidAsr
-        fluidAsr = nil
+        engine   = .parakeet
+        parakeet = nil
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        engine   = try c.decodeIfPresent(STTEngine.self,       forKey: .engine)   ?? .fluidAsr
-        fluidAsr = try c.decodeIfPresent(FluidASRSettings.self, forKey: .fluidAsr)
+        engine   = try c.decodeIfPresent(STTEngine.self,        forKey: .engine)   ?? .parakeet
+        parakeet = try c.decodeIfPresent(ParakeetSettings.self, forKey: .parakeet)
     }
 
     enum CodingKeys: String, CodingKey {
         case engine
-        case fluidAsr = "fluid_asr"
+        case parakeet = "parakeet"
     }
 }
 
 enum STTEngine: String, Codable, Sendable {
-    case fluidAsr = "fluid_asr"
+    case parakeet = "parakeet"
 }
 
-struct FluidASRSettings: Codable, Sendable {
+struct ParakeetSettings: Codable, Sendable {
+    /// ASR model variant. "v3" = Parakeet TDT 0.6B v3 (multilingual, 25 langs, default).
+    /// "v2" = Parakeet TDT 0.6B v2 (English-only, higher recall for English audio).
     var modelVersion: String
 
     init() { modelVersion = "v3" }

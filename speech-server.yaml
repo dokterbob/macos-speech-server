@@ -12,9 +12,10 @@ server:
   upload_limit_mb: 500  # Maximum multipart upload size for /audio/transcriptions
 
 stt:
-  engine: fluid_asr     # Speech-to-text engine. Currently only: fluid_asr
-  fluid_asr:
-    model_version: v3   # ASR model version (only v3 is available)
+  engine: parakeet      # Speech-to-text engine. Currently only: parakeet
+  parakeet:
+    model_version: v3   # v3 = Parakeet TDT 0.6B v3, multilingual (25 langs, default)
+                        # v2 = Parakeet TDT 0.6B v2, English-only (higher recall)
 
 tts:
   engine: pocket_tts    # Text-to-speech engine. Currently only: pocket_tts

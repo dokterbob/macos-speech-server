@@ -33,9 +33,9 @@ server:
   upload_limit_mb: 500
 
 stt:
-  engine: fluid_asr
-  fluid_asr:
-    model_version: v3
+  engine: parakeet      # Currently only: parakeet (NVIDIA Parakeet TDT via FluidAudio)
+  parakeet:
+    model_version: v3   # v3 = multilingual (25 langs, default), v2 = English-only
 
 tts:
   engine: pocket_tts
@@ -149,7 +149,7 @@ Sources/speech-server/
     SpeechController.swift         # TTS endpoint
   Services/
     STTService.swift               # STT protocol + DI
-    FluidSTTService.swift          # FluidAudio ASR implementation (fluid_asr engine)
+    FluidSTTService.swift          # FluidAudio ASR implementation (parakeet engine)
     AudioFormatDetection.swift     # Magic-byte audio format detection
     TTSService.swift               # TTS protocol + DI
     FluidTTSService.swift          # FluidAudio PocketTTS implementation (pocket_tts engine)
