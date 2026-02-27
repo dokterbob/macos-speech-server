@@ -78,14 +78,15 @@ struct TranscriptionController: RouteCollection {
             state.currentFileName = nil
         }
 
-        let maxBodyBytes = 500 * 1024 * 1024  // 500 MB
+        let uploadLimitMB = req.application.serverConfig.server.uploadLimitMB
+        let maxBodyBytes = uploadLimitMB * 1024 * 1024
         var totalBytes = 0
         do {
             for try await chunk in req.body {
                 totalBytes += chunk.readableBytes
                 if totalBytes > maxBodyBytes {
                     state.cleanup()
-                    throw Abort(.payloadTooLarge, reason: "Upload exceeds the 500 MB limit.")
+                    throw Abort(.payloadTooLarge, reason: "Upload exceeds the \(uploadLimitMB) MB limit.")
                 }
                 try parser.execute(chunk)
             }

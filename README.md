@@ -21,6 +21,42 @@ On first launch, ASR and TTS models are downloaded automatically. This takes sev
 
 The server listens on `http://localhost:8080` by default.
 
+## Configuration
+
+All server settings can be customised via a YAML config file. Create `speech-server.yaml` in the working directory (a fully-commented example is included in the repo):
+
+```yaml
+server:
+  host: 127.0.0.1       # use 0.0.0.0 to listen on all interfaces
+  port: 8080
+  log_level: notice     # trace | debug | info | notice | warning | error | critical
+  upload_limit_mb: 500
+
+stt:
+  engine: fluid_asr
+  fluid_asr:
+    model_version: v3
+
+tts:
+  engine: pocket_tts
+```
+
+All fields are optional — omitted fields use the defaults shown above.
+
+### Config discovery order
+
+1. `SPEECH_SERVER_CONFIG` environment variable (path to a YAML file)
+2. `./speech-server.yaml` in the current working directory
+3. Built-in defaults (no file needed)
+
+```bash
+# Use an explicit config file via env var
+SPEECH_SERVER_CONFIG=/etc/speech-server.yaml swift run speech-server
+
+# Vapor's built-in --hostname and --port still override config-file values
+swift run speech-server serve --hostname 0.0.0.0 --port 9090
+```
+
 ## API
 
 All endpoints are available at both `/audio/*` and `/v1/audio/*` (OpenAI compatibility).
@@ -102,19 +138,21 @@ curl -X POST http://localhost:8080/v1/audio/speech \
 ## Project structure
 
 ```
+speech-server.yaml                 # Example config (all defaults)
 Sources/speech-server/
-  Entrypoint.swift              # Application entry point
-  configure.swift               # Middleware and service setup
-  routes.swift                  # Route registration
+  Entrypoint.swift                 # Application entry point
+  configure.swift                  # Middleware and service setup
+  routes.swift                     # Route registration
+  ServerConfig.swift               # YAML config loading + Vapor DI
   Controllers/
     TranscriptionController.swift  # STT endpoint
     SpeechController.swift         # TTS endpoint
   Services/
-    STTService.swift            # STT protocol + DI
-    FluidSTTService.swift       # FluidAudio ASR implementation
-    AudioFormatDetection.swift  # Magic-byte audio format detection
-    TTSService.swift            # TTS protocol + DI
-    FluidTTSService.swift       # FluidAudio PocketTTS implementation
+    STTService.swift               # STT protocol + DI
+    FluidSTTService.swift          # FluidAudio ASR implementation (fluid_asr engine)
+    AudioFormatDetection.swift     # Magic-byte audio format detection
+    TTSService.swift               # TTS protocol + DI
+    FluidTTSService.swift          # FluidAudio PocketTTS implementation (pocket_tts engine)
   Middleware/
     RequestLoggingMiddleware.swift  # Logs method, path, status code
     OpenAIErrorMiddleware.swift    # OpenAI-format error responses

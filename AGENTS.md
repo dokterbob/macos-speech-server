@@ -16,6 +16,7 @@ A macOS-native HTTP server that exposes OpenAI-compatible speech API endpoints, 
 | Web framework | [Vapor](https://github.com/vapor/vapor) | 4.76.0+ |
 | Speech-to-text | [FluidAudio](https://github.com/FluidInference/FluidAudio) | 0.7.9+ |
 | Multipart parsing | [multipart-kit](https://github.com/vapor/multipart-kit) | 4.0.0+ |
+| YAML parsing | [Yams](https://github.com/jpsim/Yams) | 6.0.1+ |
 
 **Platform:** macOS 14+, Swift 6.2
 
@@ -44,6 +45,25 @@ FluidAudio is a newer library with less community documentation. Use the DeepWik
 - `mcp__deepwiki__ask_question` with `repoName: "FluidInference/FluidAudio"` for specific questions.
 
 ## Architecture
+
+### ServerConfig
+
+`ServerConfig` (`ServerConfig.swift`) loads and stores all runtime settings. It is available on `Application` and `Request` via Vapor DI (`app.serverConfig` / `req.serverConfig`).
+
+**Config discovery order** (first match wins):
+1. `SPEECH_SERVER_CONFIG` env var — path to a YAML file
+2. `./speech-server.yaml` in the current working directory
+3. Built-in defaults (all fields have sensible defaults matching original hardcoded values)
+
+**Engine enums** are exhaustive by design. Adding a new engine requires:
+1. Add a `case` to `STTEngine` or `TTSEngine` (the raw value becomes the YAML key, e.g. `"fluid_asr"`)
+2. Add a `XxxSettings` struct with `decodeIfPresent` defaults if the engine has settings
+3. Add a `case` in `configure.swift`'s switch to construct and initialize the service
+4. Implement the `STTService`/`TTSService` protocol
+
+**`model_version` in `FluidASRSettings`**: stored in config but not yet plumbed to `FluidSTTService.initialize()` (only v3 exists). Wire up when multiple model versions are available.
+
+**Partial configs work**: all fields use `decodeIfPresent` with defaults, so a minimal `speech-server.yaml` with only `stt:\n  engine: fluid_asr` is valid.
 
 ### Middleware chain (order matters)
 
@@ -153,13 +173,20 @@ All errors are caught by `OpenAIErrorMiddleware` and returned as:
 ```bash
 swift build
 swift run speech-server
+
+# Load a specific config file
+SPEECH_SERVER_CONFIG=speech-server.yaml swift run speech-server
+
+# Config file in CWD is picked up automatically
+swift run speech-server
 ```
 
 ## Conventions
 
 - **Async middleware**: use `AsyncMiddleware` protocol (not the `EventLoopFuture`-based `Middleware`).
 - **Request body decoding**: The transcription endpoint uses `body: .stream` and manually streams to disk, then decodes with `FormDataDecoder` from MultipartKit. Other controllers use `req.content.decode()` for JSON.
-- **Upload limit**: enforced mid-stream in `TranscriptionController` at **500 MB** via a running byte counter; throws `413 Payload Too Large` before the full body is buffered. Not set via `app.routes.defaultMaxBodySize`.
+- **Upload limit**: enforced mid-stream in `TranscriptionController` using `req.application.serverConfig.server.uploadLimitMB` (default 500 MB); throws `413 Payload Too Large` before the full body is buffered. Not set via `app.routes.defaultMaxBodySize`.
+- **Config**: `ServerConfig` is loaded in `configure()` from `SPEECH_SERVER_CONFIG` env var → `./speech-server.yaml` → built-in defaults. All engine-selection switches live in `configure.swift`; adding a new engine means adding a `case` there. Engine enum raw values match YAML keys (e.g. `fluid_asr`, `pocket_tts`).
 - **Logging**: use `request.logger` in request context, `app.logger` during setup. Log level is set to `.notice` in `configure.swift` to suppress Vapor's internal debug noise. All operational log calls (request details, transcription progress) use `.notice`; use `.warning` or above for anomalies. Services that need their own logger (e.g. `FluidSTTService`) create a `Logger(label:)` instance with `logLevel` set explicitly.
 - **STTService protocol**: `transcribe(audioURL: URL)` returns `TranscriptionResult` (with `text` and `duration`), not a plain `String`. The URL points to a temp file with the correct audio extension, created and cleaned up by the controller. The `verbose_json` response includes a `segments` array matching the OpenAI API shape.
 - **Audio format detection**: lives in `AudioFormatDetection.swift` as a package-internal free function `audioFileExtension(filename:header:)`. `header` is the first 12 bytes of the audio data (`Data`). Called from `TranscriptionController`, not from `FluidSTTService`. `File.contentType` in Vapor is derived from the filename extension and may be `nil` -- always use `audioFileExtension` instead.

@@ -1,0 +1,20 @@
+# speech-server configuration
+# All fields are optional; omitted fields use the built-in defaults shown here.
+# Config discovery order:
+#   1. SPEECH_SERVER_CONFIG env var (path to this file)
+#   2. ./speech-server.yaml in the working directory (this file, if present)
+#   3. Built-in defaults
+
+server:
+  host: 127.0.0.1       # Bind address. Use 0.0.0.0 to listen on all interfaces.
+  port: 8080            # Listening port. Overridden by Vapor's --port CLI arg.
+  log_level: notice     # trace | debug | info | notice | warning | error | critical
+  upload_limit_mb: 500  # Maximum multipart upload size for /audio/transcriptions
+
+stt:
+  engine: fluid_asr     # Speech-to-text engine. Currently only: fluid_asr
+  fluid_asr:
+    model_version: v3   # ASR model version (only v3 is available)
+
+tts:
+  engine: pocket_tts    # Text-to-speech engine. Currently only: pocket_tts
