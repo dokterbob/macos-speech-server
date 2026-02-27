@@ -21,5 +21,16 @@ let package = Package(
                 .product(name: "Yams", package: "Yams"),
             ]
         ),
+        .testTarget(
+            name: "speech-serverTests",
+            dependencies: [
+                .target(name: "speech-server"),
+                .product(name: "XCTVapor", package: "vapor"),
+                .product(name: "Yams", package: "Yams"),
+            ],
+            resources: [
+                .copy("Fixtures"),
+            ]
+        ),
     ]
 )

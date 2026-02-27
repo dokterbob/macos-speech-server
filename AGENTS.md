@@ -181,6 +181,30 @@ SPEECH_SERVER_CONFIG=speech-server.yaml swift run speech-server
 swift run speech-server
 ```
 
+## Testing
+
+```bash
+swift test                        # run all tests
+swift build --build-tests         # compile only, useful to check for errors
+swift test --filter ServerConfig  # run a specific test class
+```
+
+**Test structure** (`Tests/speech-serverTests/`):
+
+| File | Type | Notes |
+|------|------|-------|
+| `Helpers/TestApp.swift` | Helper | `sharedTestApp()` singleton, multipart builder, word-overlap helper |
+| `ServerConfigTests.swift` | Unit | YAML parsing, defaults — no models needed |
+| `AudioFormatDetectionTests.swift` | Unit | `audioFileExtension()` — no models needed |
+| `SpeechRequestTests.swift` | Unit | `SpeechRequest` resolved defaults — no models needed |
+| `TranscriptionIntegrationTests.swift` | Integration | Real STT pipeline via Vapor test client |
+| `SpeechIntegrationTests.swift` | Integration | Real TTS pipeline via Vapor test client |
+| `RoundTripIntegrationTests.swift` | Integration | TTS→STT round-trip similarity check |
+
+**First run**: integration tests load real FluidAudio models (STT + TTS). Model download takes several minutes; subsequent runs use the on-disk cache and start in seconds. The shared app singleton (`_appTask` in `TestApp.swift`) ensures models are initialized once per `swift test` invocation.
+
+**Fixtures**: `Tests/speech-serverTests/Fixtures/test.wav` is a copy of the repo-root `test.wav`, accessed via `Bundle.module` in integration tests.
+
 ## Conventions
 
 - **Async middleware**: use `AsyncMiddleware` protocol (not the `EventLoopFuture`-based `Middleware`).
