@@ -205,6 +205,16 @@ swift test --filter ServerConfig  # run a specific test class
 
 **Fixtures**: `Tests/speech-serverTests/Fixtures/test.wav` is a copy of the repo-root `test.wav`, accessed via `Bundle.module` in integration tests.
 
+## CI
+
+`.github/workflows/tests.yml` runs on every push and PR to `main`.
+
+- **Runner**: `macos-15` with Swift 6.2 installed via `swift-actions/setup-swift@v2`.
+- **Cache**: `.build` and `~/Library/Application Support/FluidAudio` (all model subdirectories) are cached by `actions/cache@v4` keyed on `Package.resolved`. A `restore-keys` fallback allows partial hits (models survive SPM-only changes).
+- **Steps**: checkout → setup Swift → restore cache → `swift build --build-tests` → `swift test` (30 min timeout).
+- **Concurrency**: redundant runs on rapid pushes are cancelled via `concurrency.cancel-in-progress: true`.
+- **Cold-cache run**: model download + SPM compilation takes ~10-20 min. Warm-cache run: ~1-2 min.
+
 ## Conventions
 
 - **Async middleware**: use `AsyncMiddleware` protocol (not the `EventLoopFuture`-based `Middleware`).
@@ -215,4 +225,4 @@ swift test --filter ServerConfig  # run a specific test class
 - **STTService protocol**: `transcribe(audioURL: URL)` returns `TranscriptionResult` (with `text` and `duration`), not a plain `String`. The URL points to a temp file with the correct audio extension, created and cleaned up by the controller. The `verbose_json` response includes a `segments` array matching the OpenAI API shape.
 - **Audio format detection**: lives in `AudioFormatDetection.swift` as a package-internal free function `audioFileExtension(filename:header:)`. `header` is the first 12 bytes of the audio data (`Data`). Called from `TranscriptionController`, not from `FluidSTTService`. `File.contentType` in Vapor is derived from the filename extension and may be `nil` -- always use `audioFileExtension` instead.
 - **TTS voice validation**: `SpeechController` validates the voice with `guard voice == "alba"` before starting the stream (response headers already sent → can't return 4xx after). `FluidTTSService` still catches `PocketTtsConstantsLoader.LoadError.fileNotFound` and re-throws as `FluidTTSError.voiceNotFound` as a safety net for unknown errors, but this should only be reached if the guard is missing.
-- **Keeping docs in sync**: When making any user-visible change (new endpoint, changed behaviour, new field, new error), update `README.md`. When making any architectural change (new service, new constraint, new convention, new gotcha), update `CLAUDE.md`. Both files should be updated in the same commit as the code change.
+- **Keeping docs in sync**: When making any user-visible change (new endpoint, changed behaviour, new field, new error), update `README.md`. When making any architectural change (new service, new constraint, new convention, new gotcha), update `AGENTS.md`. Both files should be updated in the same commit as the code change.
