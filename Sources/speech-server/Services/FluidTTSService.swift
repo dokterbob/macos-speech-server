@@ -29,7 +29,7 @@ final class FluidTTSService: TTSService, @unchecked Sendable {
         guard let manager = pocketTtsManager else {
             throw FluidTTSError.notInitialized
         }
-        let preprocessed = ensureSentencePunctuation(sanitizeEmoji ? sanitizeForTTS(text) : text)
+        let preprocessed = ensureSentencePunctuation(sanitizeEmoji ? sanitizeTextForPocketTTS(text) : text)
         logger.notice("Synthesizing: \(preprocessed.prefix(80))...")
         do {
             let audioData = try await manager.synthesize(text: preprocessed, voice: voice)
@@ -56,7 +56,7 @@ final class FluidTTSService: TTSService, @unchecked Sendable {
                     guard let manager = self.pocketTtsManager else {
                         throw FluidTTSError.notInitialized
                     }
-                    let input = self.sanitizeEmoji ? self.sanitizeForTTS(text) : text
+                    let input = self.sanitizeEmoji ? sanitizeTextForPocketTTS(text) : text
                     let sentences = self.detectSentences(input)
                     self.logger.notice("Streaming \(sentences.count) sentence(s)")
                     for sentence in sentences {
@@ -82,28 +82,6 @@ final class FluidTTSService: TTSService, @unchecked Sendable {
     }
 
     // MARK: - Private
-
-    // Remove emoji and collapse surrounding whitespace so PocketTTS doesn't
-    // vocalise pictographs or emit creaky artifacts in their place.
-    // Filters:
-    //   • isEmojiPresentation — characters that default to emoji glyph rendering
-    //   • isEmojiModifier     — skin-tone modifiers (U+1F3FB–U+1F3FF)
-    //   • U+FE00–U+FE0F       — variation selectors (force emoji vs text display)
-    //   • U+E0000–U+E007F     — tag characters used in regional-flag sequences
-    //   • U+200D              — zero-width joiner that stitches compound emoji
-    private func sanitizeForTTS(_ text: String) -> String {
-        let filtered = text.unicodeScalars.filter { scalar in
-            !scalar.properties.isEmojiPresentation
-            && !scalar.properties.isEmojiModifier
-            && !(scalar.value >= 0xFE00 && scalar.value <= 0xFE0F)
-            && !(scalar.value >= 0xE0000 && scalar.value <= 0xE007F)
-            && scalar.value != 0x200D
-        }
-        return String(String.UnicodeScalarView(filtered))
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-    }
 
     // Detect sentence boundaries with NLTokenizer and ensure each sentence
     // ends with terminal punctuation.  Re-joining produces text that PocketTTS
@@ -139,6 +117,31 @@ final class FluidTTSService: TTSService, @unchecked Sendable {
         }
         return data
     }
+}
+
+// MARK: - PocketTTS text sanitization
+
+// Strips emoji from `text` and collapses any whitespace runs left behind.
+// Package-internal so it can be tested directly without a live TTS service.
+//
+// Filtered scalar categories:
+//   • isEmojiPresentation — characters that default to emoji glyph rendering
+//   • isEmojiModifier     — skin-tone modifiers (U+1F3FB–U+1F3FF)
+//   • U+FE00–U+FE0F       — variation selectors (force emoji vs text display)
+//   • U+E0000–U+E007F     — tag characters used in regional-flag sequences
+//   • U+200D              — zero-width joiner that stitches compound emoji
+func sanitizeTextForPocketTTS(_ text: String) -> String {
+    let filtered = text.unicodeScalars.filter { scalar in
+        !scalar.properties.isEmojiPresentation
+        && !scalar.properties.isEmojiModifier
+        && !(scalar.value >= 0xFE00 && scalar.value <= 0xFE0F)
+        && !(scalar.value >= 0xE0000 && scalar.value <= 0xE007F)
+        && scalar.value != 0x200D
+    }
+    return String(String.UnicodeScalarView(filtered))
+        .components(separatedBy: .whitespacesAndNewlines)
+        .filter { !$0.isEmpty }
+        .joined(separator: " ")
 }
 
 enum FluidTTSError: Error, CustomStringConvertible {

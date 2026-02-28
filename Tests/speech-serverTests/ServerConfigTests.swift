@@ -15,6 +15,50 @@ final class ServerConfigTests: XCTestCase {
         XCTAssertEqual(config.stt.engine, .parakeet)
         XCTAssertNil(config.stt.parakeet)
         XCTAssertEqual(config.tts.engine, .pocketTts)
+        XCTAssertNil(config.tts.pocketTts)
+    }
+
+    func testPocketTtsDefaultSettings() {
+        let settings = PocketTtsSettings()
+        XCTAssertTrue(settings.sanitizeEmoji)
+    }
+
+    func testPocketTtsSanitizeEmojiDisabled() throws {
+        let yaml = """
+        tts:
+          engine: pocket_tts
+          pocket_tts:
+            sanitize_emoji: false
+        """
+        let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
+        XCTAssertEqual(config.tts.pocketTts?.sanitizeEmoji, false)
+    }
+
+    func testPocketTtsSanitizeEmojiExplicitTrue() throws {
+        let yaml = """
+        tts:
+          engine: pocket_tts
+          pocket_tts:
+            sanitize_emoji: true
+        """
+        let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
+        XCTAssertEqual(config.tts.pocketTts?.sanitizeEmoji, true)
+    }
+
+    func testPocketTtsEmptyBlockGivesDefaultSanitizeEmoji() throws {
+        let yaml = """
+        tts:
+          engine: pocket_tts
+          pocket_tts: {}
+        """
+        let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
+        XCTAssertEqual(config.tts.pocketTts?.sanitizeEmoji, true)
+    }
+
+    func testPocketTtsBlockAbsentGivesNilSettings() throws {
+        let yaml = "tts:\n  engine: pocket_tts"
+        let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
+        XCTAssertNil(config.tts.pocketTts)
     }
 
     // MARK: - YAML parsing
