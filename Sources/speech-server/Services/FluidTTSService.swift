@@ -125,15 +125,20 @@ final class FluidTTSService: TTSService, @unchecked Sendable {
 // Package-internal so it can be tested directly without a live TTS service.
 //
 // Filtered scalar categories:
-//   • isEmojiPresentation — characters that default to emoji glyph rendering
-//   • isEmojiModifier     — skin-tone modifiers (U+1F3FB–U+1F3FF)
-//   • U+FE00–U+FE0F       — variation selectors (force emoji vs text display)
-//   • U+E0000–U+E007F     — tag characters used in regional-flag sequences
-//   • U+200D              — zero-width joiner that stitches compound emoji
+//   • isEmoji && value >= 0x231A — all pictographic emoji, including both
+//     emoji-presentation (e.g. 🎉 U+1F389) and text-default-presentation
+//     (e.g. ⚡ U+26A1, 🌩 U+1F329) variants.  U+231A (⌚ WATCH) is the
+//     first codepoint with Emoji_Presentation=Yes; using it as the lower
+//     bound keeps ASCII/Latin-1 emoji-capable characters (#, *, 0–9,
+//     ™ U+2122, ℹ U+2139, ↔ U+2194) intact.  Skin-tone modifiers
+//     (U+1F3FB–U+1F3FF) satisfy isEmoji && value >= 0x231A so no separate
+//     isEmojiModifier check is needed.
+//   • U+FE00–U+FE0F — variation selectors (force emoji vs text display)
+//   • U+E0000–U+E007F — tag characters used in regional-flag sequences
+//   • U+200D — zero-width joiner that stitches compound emoji
 func sanitizeTextForPocketTTS(_ text: String) -> String {
     let filtered = text.unicodeScalars.filter { scalar in
-        !scalar.properties.isEmojiPresentation
-        && !scalar.properties.isEmojiModifier
+        !(scalar.properties.isEmoji && scalar.value >= 0x231A)
         && !(scalar.value >= 0xFE00 && scalar.value <= 0xFE0F)
         && !(scalar.value >= 0xE0000 && scalar.value <= 0xE007F)
         && scalar.value != 0x200D

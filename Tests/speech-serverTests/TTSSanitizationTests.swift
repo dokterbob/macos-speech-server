@@ -52,10 +52,20 @@ final class TTSSanitizationTests: XCTestCase {
         XCTAssertEqual(sanitizeTextForPocketTTS("She is a 👩‍💻 developer."), "She is a developer.")
     }
 
+    // MARK: - Text-default-presentation emoji
+
+    func testTextDefaultPresentationEmojiStripped() {
+        // 🌩 U+1F329 and ⚡ U+26A1 have Emoji=Yes but Emoji_Presentation=No;
+        // the old isEmojiPresentation filter missed them.
+        XCTAssertEqual(sanitizeTextForPocketTTS("🌩 Storm warning ⚡"), "Storm warning")
+    }
+
     // MARK: - Skin-tone modifiers
 
     func testSkinToneModifierStripped() {
-        // 👋🏽 = waving hand + medium skin tone
+        // 👋🏽 = waving hand + medium skin tone.
+        // Skin-tone modifiers (U+1F3FB–U+1F3FF) are caught by the main
+        // isEmoji && value >= 0x231A condition.
         XCTAssertEqual(sanitizeTextForPocketTTS("Hello 👋🏽"), "Hello")
     }
 
