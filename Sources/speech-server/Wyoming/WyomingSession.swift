@@ -192,20 +192,34 @@ actor WyomingSession {
             "url": .string("https://github.com/FluidInference/FluidAudio")
         ])
 
+        // Two-level ASR hierarchy: AsrProgram → models: [AsrModel]
+        // languages lives on AsrModel, not on AsrProgram
         let asrModel = WyomingValue.object([
+            "name": .string("parakeet-tdt-0.6b"),
+            "description": .string("Parakeet TDT 0.6B on-device ASR via FluidAudio"),
+            "attribution": attribution,
+            "installed": .bool(true),
+            "version": .string("1.0.0"),
+            "languages": .array([.string("en")])
+        ])
+
+        let asrProgram = WyomingValue.object([
             "name": .string("macos-speech-server"),
             "description": .string("macOS on-device speech recognition via FluidAudio"),
             "attribution": attribution,
             "installed": .bool(true),
-            "languages": .array([.string("en")]),
-            "version": .string("1.0.0")
+            "version": .string("1.0.0"),
+            "models": .array([asrModel])
         ])
 
+        // Two-level TTS hierarchy: TtsProgram → voices: [TtsVoice]
+        // languages lives on TtsVoice, not on TtsProgram
         let ttsVoice = WyomingValue.object([
             "name": .string("alba"),
             "description": .string("Alba voice"),
             "attribution": attribution,
             "installed": .bool(true),
+            "version": .string("1.0.0"),
             "languages": .array([.string("en")])
         ])
 
@@ -214,15 +228,20 @@ actor WyomingSession {
             "description": .string("macOS on-device TTS via FluidAudio PocketTTS"),
             "attribution": attribution,
             "installed": .bool(true),
-            "voices": .array([ttsVoice]),
-            "version": .string("1.0.0")
+            "version": .string("1.0.0"),
+            "voices": .array([ttsVoice])
         ])
 
         return WyomingEvent(
             type: "info",
             data: [
-                "asr": .array([asrModel]),
-                "tts": .array([ttsProgram])
+                "asr": .array([asrProgram]),
+                "tts": .array([ttsProgram]),
+                "handle": .array([]),
+                "intent": .array([]),
+                "wake": .array([]),
+                "mic": .array([]),
+                "snd": .array([])
             ]
         )
     }

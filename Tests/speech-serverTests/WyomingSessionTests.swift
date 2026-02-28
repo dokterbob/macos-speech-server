@@ -38,19 +38,42 @@ final class WyomingSessionTests: XCTestCase {
         XCTAssertFalse(asrArray!.isEmpty)
         XCTAssertFalse(ttsArray!.isEmpty)
 
-        // ASR must advertise at least "en"
-        let asrModel = asrArray![0].objectValue
-        XCTAssertNotNil(asrModel)
-        XCTAssertEqual(asrModel?["installed"]?.boolValue, true)
-        let asrLangs = asrModel?["languages"]?.arrayValue
-        XCTAssertNotNil(asrLangs)
+        // ASR program must have a "models" array (two-level hierarchy)
+        let asrProgram = asrArray![0].objectValue
+        XCTAssertNotNil(asrProgram)
+        XCTAssertEqual(asrProgram?["installed"]?.boolValue, true)
+        // languages must NOT be on the program — it lives on the model
+        XCTAssertNil(asrProgram?["languages"])
+        let asrModels = asrProgram?["models"]?.arrayValue
+        XCTAssertNotNil(asrModels)
+        XCTAssertFalse(asrModels!.isEmpty)
+        let firstAsrModel = asrModels![0].objectValue
+        XCTAssertNotNil(firstAsrModel)
+        XCTAssertEqual(firstAsrModel?["installed"]?.boolValue, true)
+        let asrModelLangs = firstAsrModel?["languages"]?.arrayValue
+        XCTAssertNotNil(asrModelLangs)
+        XCTAssertTrue(asrModelLangs!.contains(where: { $0.stringValue == "en" }))
 
-        // TTS must advertise the "alba" voice
+        // TTS program must have a "voices" array; each voice has "languages"
         let ttsProgram = ttsArray![0].objectValue
+        XCTAssertNotNil(ttsProgram)
+        // languages must NOT be on the program — it lives on the voice
+        XCTAssertNil(ttsProgram?["languages"])
         let voices = ttsProgram?["voices"]?.arrayValue
         XCTAssertNotNil(voices)
-        let albaVoice = voices?.first?.objectValue
+        XCTAssertFalse(voices!.isEmpty)
+        let albaVoice = voices![0].objectValue
         XCTAssertEqual(albaVoice?["name"]?.stringValue, "alba")
+        let voiceLangs = albaVoice?["languages"]?.arrayValue
+        XCTAssertNotNil(voiceLangs)
+        XCTAssertTrue(voiceLangs!.contains(where: { $0.stringValue == "en" }))
+
+        // Empty arrays for unsupported services must be present
+        XCTAssertEqual(info.data["handle"]?.arrayValue?.count, 0)
+        XCTAssertEqual(info.data["intent"]?.arrayValue?.count, 0)
+        XCTAssertEqual(info.data["wake"]?.arrayValue?.count, 0)
+        XCTAssertEqual(info.data["mic"]?.arrayValue?.count, 0)
+        XCTAssertEqual(info.data["snd"]?.arrayValue?.count, 0)
     }
 
     func testDescribeDoesNotChangeState() async throws {
