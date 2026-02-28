@@ -125,21 +125,44 @@ struct ParakeetSettings: Codable, Sendable {
 
 struct TTSConfig: Codable, Sendable {
     var engine: TTSEngine
+    var pocketTts: PocketTtsSettings?
 
-    init() { engine = .pocketTts }
+    init() {
+        engine   = .pocketTts
+        pocketTts = nil
+    }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        engine = try c.decodeIfPresent(TTSEngine.self, forKey: .engine) ?? .pocketTts
+        engine   = try c.decodeIfPresent(TTSEngine.self,         forKey: .engine)    ?? .pocketTts
+        pocketTts = try c.decodeIfPresent(PocketTtsSettings.self, forKey: .pocketTts)
     }
 
-    enum CodingKeys: CodingKey {
+    enum CodingKeys: String, CodingKey {
         case engine
+        case pocketTts = "pocket_tts"
     }
 }
 
 enum TTSEngine: String, Codable, Sendable {
     case pocketTts = "pocket_tts"
+}
+
+struct PocketTtsSettings: Codable, Sendable {
+    /// Strip emoji and collapse surrounding whitespace before synthesis.
+    /// PocketTTS renders emoji as creaky artifacts; default is true.
+    var sanitizeEmoji: Bool
+
+    init() { sanitizeEmoji = true }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sanitizeEmoji = try c.decodeIfPresent(Bool.self, forKey: .sanitizeEmoji) ?? true
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sanitizeEmoji = "sanitize_emoji"
+    }
 }
 
 // MARK: - Vapor DI

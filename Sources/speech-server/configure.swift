@@ -26,7 +26,7 @@ func configure(_ app: Application) async throws {
     case .pocketTts:
         let ttsService = FluidTTSService()
         app.logger.info("Loading TTS models (first run will download)...")
-        try await ttsService.initialize()
+        try await ttsService.initialize(settings: config.tts.pocketTts ?? PocketTtsSettings())
         app.ttsService = ttsService
         app.logger.info("TTS models loaded.")
     }
