@@ -17,6 +17,7 @@ A macOS-native HTTP server that exposes OpenAI-compatible speech API endpoints, 
 | Speech-to-text | [FluidAudio](https://github.com/FluidInference/FluidAudio) | 0.7.9+ |
 | Multipart parsing | [multipart-kit](https://github.com/vapor/multipart-kit) | 4.0.0+ |
 | YAML parsing | [Yams](https://github.com/jpsim/Yams) | 6.0.1+ |
+| TCP networking | [swift-nio](https://github.com/apple/swift-nio) | 2.65.0+ |
 
 **Platform:** macOS 14+, Swift 6.2
 
@@ -153,6 +154,57 @@ every sentence boundary so the library always prefers `.!?` splits over word-bou
 **before** the stream starts (via `guard voice == "alba"`) because once response headers are
 sent the status code cannot be changed to 4xx.
 
+### Wyoming protocol
+
+The Wyoming server runs alongside the HTTP server on a single TCP port (default 10300). A single port serves both TTS and STT — the handler dispatches by incoming event type. Enabled by default; set `wyoming.port: 0` to disable.
+
+**Wire format** — each event has up to 3 parts:
+1. Header line: JSON + `\n`. Contains `type`, `version`, optionally `data_length` and `payload_length`.
+2. Data section (optional): exactly `data_length` bytes of UTF-8 JSON with the event's data dict.
+3. Payload section (optional): exactly `payload_length` raw bytes (binary, e.g. PCM audio).
+
+Example: `{"type":"audio-chunk","version":"1.0.0","data_length":36,"payload_length":2048}\n{"rate":16000,"width":2,"channels":1}<2048 bytes>`
+
+**Source files** (`Sources/speech-server/Wyoming/`):
+
+| File | Purpose |
+|------|---------|
+| `WyomingEvent.swift` | `WyomingEvent` struct + `WyomingValue` enum (supports string/int/double/bool/null/array/object). `serialize()` produces wire bytes. |
+| `WyomingFrameDecoder.swift` | Pure Swift state machine. `mutating func process(_ bytes: Data) -> [WyomingEvent]`. No NIO imports. |
+| `WyomingWAVWriter.swift` | Accumulates PCM chunks; `makeWAV()` / `writeToTempFile()` for STT handoff. |
+| `WyomingSession.swift` | `actor` combining TTS and STT. Dispatches by event type; holds state machine for STT recording flow. |
+| `WyomingNIOHandler.swift` | `ChannelInboundHandler` (thin NIO glue). Feeds bytes to `WyomingFrameDecoder`, calls `WyomingSession`, writes responses. |
+| `WyomingServer.swift` | `ServerBootstrap` + `LifecycleHandler`. Binds single TCP port, creates session per connection. |
+
+**Session state machine**:
+```
+idle ──synthesize──→ [call TTSService.synthesizeStream, send audio-start/chunk/stop] ──→ idle
+idle ──transcribe──→ awaitingAudio
+awaitingAudio ──audio-start──→ recording(WAVWriter)
+recording ──audio-chunk──→ recording (append PCM)
+recording ──audio-stop──→ [call STTService.transcribe, send transcript] ──→ idle
+any state ──describe──→ [send info with both asr + tts capabilities] (state unchanged)
+```
+
+The `info` response advertises both `asr` and `tts` arrays so Home Assistant knows this single port handles both services.
+
+**Config** (`wyoming` section in `speech-server.yaml`):
+```yaml
+wyoming:
+  port: 10300   # 0 = disabled; default 10300
+```
+
+**Test files** (`Tests/speech-serverTests/`):
+
+| File | What it tests | Models needed? |
+|------|---------------|----------------|
+| `WyomingConfigTests.swift` | YAML parsing, defaults, port 0 disable | No |
+| `WyomingEventTests.swift` | serialize/deserialize, WyomingValue conversions, round-trip | No |
+| `WyomingFrameDecoderTests.swift` | Header-only, with data, with payload, partial feeds, multi-event, reset | No |
+| `WyomingWAVWriterTests.swift` | Valid WAV header bytes, multi-chunk, cleanup, custom sample rates | No |
+| `WyomingSessionTests.swift` | describe→info, synthesize→audio sequence, STT flow, errors (mock services) | No |
+| `Helpers/MockServices.swift` | `MockTTSService` + `MockSTTService` for session tests | No |
+
 ### Error handling
 
 All errors are caught by `OpenAIErrorMiddleware` and returned as:
@@ -200,6 +252,12 @@ swift test --filter ServerConfig  # run a specific test class
 | `TranscriptionIntegrationTests.swift` | Integration | Real STT pipeline via Vapor test client |
 | `SpeechIntegrationTests.swift` | Integration | Real TTS pipeline via Vapor test client |
 | `RoundTripIntegrationTests.swift` | Integration | TTS→STT round-trip similarity check |
+| `WyomingConfigTests.swift` | Unit | Wyoming YAML config — no models needed |
+| `WyomingEventTests.swift` | Unit | Wyoming event serialize/parse — no models needed |
+| `WyomingFrameDecoderTests.swift` | Unit | Wyoming frame decoder — no models needed |
+| `WyomingWAVWriterTests.swift` | Unit | Wyoming WAV writer — no models needed |
+| `WyomingSessionTests.swift` | Unit | Wyoming session with mock services — no models needed |
+| `Helpers/MockServices.swift` | Helper | MockTTSService + MockSTTService |
 
 **First run**: integration tests load real FluidAudio models (STT + TTS). Model download takes several minutes; subsequent runs use the on-disk cache and start in seconds. The shared app singleton (`_appTask` in `TestApp.swift`) ensures models are initialized once per `swift test` invocation.
 
@@ -226,3 +284,4 @@ swift test --filter ServerConfig  # run a specific test class
 - **Audio format detection**: lives in `AudioFormatDetection.swift` as a package-internal free function `audioFileExtension(filename:header:)`. `header` is the first 12 bytes of the audio data (`Data`). Called from `TranscriptionController`, not from `FluidSTTService`. `File.contentType` in Vapor is derived from the filename extension and may be `nil` -- always use `audioFileExtension` instead.
 - **TTS voice validation**: `SpeechController` validates the voice with `guard voice == "alba"` before starting the stream (response headers already sent → can't return 4xx after). `FluidTTSService` still catches `PocketTtsConstantsLoader.LoadError.fileNotFound` and re-throws as `FluidTTSError.voiceNotFound` as a safety net for unknown errors, but this should only be reached if the guard is missing.
 - **Keeping docs in sync**: When making any user-visible change (new endpoint, changed behaviour, new field, new error), update `README.md`. When making any architectural change (new service, new constraint, new convention, new gotcha), update `AGENTS.md`. Both files should be updated in the same commit as the code change.
+- **TDD convention**: Unit tests are written BEFORE the implementation they cover. When implementing a feature, write the test file first (it will fail to compile until the implementation is added), then write the implementation. This ensures tests actually define the contract, not just document it.

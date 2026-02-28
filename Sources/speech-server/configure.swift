@@ -47,6 +47,25 @@ func configure(_ app: Application) async throws {
         app.logger.info("ASR models loaded. Server ready.")
     }
 
+    // Wyoming TCP server (default port 10300; set wyoming.port: 0 or WYOMING_PORT=0 to disable)
+    let wyomingPort: Int
+    if let envPort = ProcessInfo.processInfo.environment["WYOMING_PORT"], let parsed = Int(envPort) {
+        wyomingPort = parsed
+    } else {
+        wyomingPort = config.wyoming.port
+    }
+    if wyomingPort > 0 {
+        let wyomingServer = WyomingServer(
+            host: config.server.host,
+            port: wyomingPort,
+            ttsService: app.ttsService,
+            sttService: app.sttService,
+            logger: app.logger
+        )
+        app.lifecycle.use(wyomingServer)
+        app.logger.notice("Wyoming server registered on \(config.server.host):\(wyomingPort) (starts after service init).")
+    }
+
     try routes(app)
 }
 

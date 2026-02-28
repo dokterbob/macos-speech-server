@@ -8,18 +8,21 @@ struct ServerConfig: Codable, Sendable {
     var server: ServerSettings
     var stt: STTConfig
     var tts: TTSConfig
+    var wyoming: WyomingConfig
 
     init() {
-        server = ServerSettings()
-        stt = STTConfig()
-        tts = TTSConfig()
+        server  = ServerSettings()
+        stt     = STTConfig()
+        tts     = TTSConfig()
+        wyoming = WyomingConfig()
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        server = try c.decodeIfPresent(ServerSettings.self, forKey: .server) ?? ServerSettings()
-        stt    = try c.decodeIfPresent(STTConfig.self,      forKey: .stt)    ?? STTConfig()
-        tts    = try c.decodeIfPresent(TTSConfig.self,      forKey: .tts)    ?? TTSConfig()
+        server  = try c.decodeIfPresent(ServerSettings.self, forKey: .server)  ?? ServerSettings()
+        stt     = try c.decodeIfPresent(STTConfig.self,      forKey: .stt)     ?? STTConfig()
+        tts     = try c.decodeIfPresent(TTSConfig.self,      forKey: .tts)     ?? TTSConfig()
+        wyoming = try c.decodeIfPresent(WyomingConfig.self,  forKey: .wyoming) ?? WyomingConfig()
     }
 
     static var `default`: ServerConfig { ServerConfig() }
@@ -162,6 +165,24 @@ struct PocketTtsSettings: Codable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case sanitizeEmoji = "sanitize_emoji"
+    }
+}
+
+// MARK: - Wyoming config
+
+struct WyomingConfig: Codable, Sendable {
+    /// TCP port for the Wyoming protocol server. Set to 0 to disable. Default: 10300.
+    var port: Int
+
+    init() { port = 10300 }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        port = try c.decodeIfPresent(Int.self, forKey: .port) ?? 10300
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case port
     }
 }
 

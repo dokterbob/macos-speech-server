@@ -14,6 +14,8 @@ let package = Package(
         // Data.bytes requires macOS 26+ Foundation and is absent on macOS 15 CI runners.
         // Pin to <1.31 to drop the swift-configuration transitive dependency.
         .package(url: "https://github.com/swift-server/async-http-client.git", "1.24.0"..<"1.31.0"),
+        // swift-nio: explicit dependency for Wyoming TCP server (already resolved transitively via Vapor).
+        .package(url: "https://github.com/apple/swift-nio.git", from: "2.65.0"),
     ],
     targets: [
         .executableTarget(
@@ -23,6 +25,8 @@ let package = Package(
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "MultipartKit", package: "multipart-kit"),
                 .product(name: "Yams", package: "Yams"),
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
             ]
         ),
         .testTarget(
