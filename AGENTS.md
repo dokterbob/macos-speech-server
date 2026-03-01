@@ -4,7 +4,7 @@ Essential knowledge for AI agents working on this codebase.
 
 ## Project overview
 
-A macOS-native HTTP server that exposes OpenAI-compatible speech API endpoints, running entirely on-device. Built with Vapor (Swift web framework) and FluidAudio (on-device ASR via Apple's Neural Engine).
+A macOS-native HTTP server that exposes OpenAI-compatible speech API endpoints and a Wyoming protocol server for Home Assistant integration, running entirely on-device. Built with Vapor (Swift web framework) and FluidAudio (on-device ASR via Apple's Neural Engine).
 
 - **STT** is fully implemented using FluidAudio's `AsrManager`.
 - **TTS** is fully implemented using FluidAudio's `PocketTtsManager`. Only the `alba` voice is available; requesting any other voice returns a 400.

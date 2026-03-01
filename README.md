@@ -1,8 +1,13 @@
 # macos-speech-server
 
-Local, private speech-to-text (STT) and text-to-speech (TTS) server for macOS with an OpenAI-compatible API.
+Local, private speech-to-text (STT) and text-to-speech (TTS) server for macOS with OpenAI-compatible and Home Assistant (Wyoming) support.
 
 Runs entirely on-device using Apple's Neural Engine via [FluidAudio](https://github.com/FluidInference/FluidAudio) -- no cloud services, no API keys, no data leaves your machine.
+
+Two interfaces, one server:
+
+- **OpenAI-compatible HTTP API** -- drop-in replacement for OpenAI audio endpoints (`/v1/audio/transcriptions`, `/v1/audio/speech`)
+- **[Wyoming protocol](https://github.com/rhasspy/wyoming)** (TCP, default port 10300) -- native [Home Assistant](https://www.home-assistant.io/) voice pipeline integration
 
 ## Requirements
 
@@ -19,7 +24,7 @@ swift run speech-server
 
 On first launch, ASR and TTS models are downloaded automatically. This takes several minutes but only happens once; subsequent starts are fast.
 
-The server listens on `http://localhost:8080` by default.
+The server listens on `http://localhost:8080` by default. The Wyoming protocol server listens on TCP port `10300` by default.
 
 ## Configuration
 
@@ -39,6 +44,9 @@ stt:
 
 tts:
   engine: pocket_tts
+
+wyoming:
+  port: 10300           # TCP port for Wyoming protocol (Home Assistant). 0 = disabled.
 ```
 
 All fields are optional — omitted fields use the defaults shown above.
@@ -135,6 +143,41 @@ curl -X POST http://localhost:8080/v1/audio/speech \
   --output speech.pcm
 ```
 
+## Home Assistant
+
+macos-speech-server speaks the [Wyoming protocol](https://github.com/rhasspy/wyoming), enabling fully on-device STT and TTS for [Home Assistant](https://www.home-assistant.io/) voice pipelines via the [Wyoming integration](https://www.home-assistant.io/integrations/wyoming/).
+
+A single TCP port (default `10300`) handles both STT and TTS -- Home Assistant discovers both capabilities automatically.
+
+### Network setup
+
+The default `server.host: 127.0.0.1` binds the HTTP server to localhost only. For Home Assistant running on another machine (or in a VM) you must also make the Wyoming port reachable. Set `server.host` to `0.0.0.0` (all interfaces) or a specific LAN/Tailscale IP in your `speech-server.yaml`:
+
+```yaml
+server:
+  host: 0.0.0.0   # listen on all interfaces so HA can reach the HTTP API too
+wyoming:
+  port: 10300     # ensure this port is accessible from your HA host
+```
+
+### Adding the Wyoming integration in Home Assistant
+
+The integration must be added manually (zeroconf/auto-discovery is not supported):
+
+1. Go to **Settings > Devices & Services**
+2. Click **Add Integration**
+3. Search for **Wyoming Protocol**
+4. Enter the host (IP address of the Mac running macos-speech-server) and port (default `10300`)
+5. Home Assistant discovers both STT and TTS capabilities on that single port
+
+### Using in a voice pipeline
+
+1. Go to **Settings > Voice Assistants**
+2. Create a new pipeline or edit an existing one
+3. Select **macos-speech-server** for the Speech-to-text and/or Text-to-speech step
+
+Streaming TTS (lower latency, audio starts playing before synthesis is complete) is supported in Home Assistant 2025.07 and later.
+
 ## Project structure
 
 ```
@@ -153,6 +196,7 @@ Sources/speech-server/
     AudioFormatDetection.swift     # Magic-byte audio format detection
     TTSService.swift               # TTS protocol + DI
     FluidTTSService.swift          # FluidAudio PocketTTS implementation (pocket_tts engine)
+    SentenceDetection.swift        # Shared sentence splitting for TTS
   Middleware/
     RequestLoggingMiddleware.swift  # Logs method, path, status code
     OpenAIErrorMiddleware.swift    # OpenAI-format error responses
@@ -160,6 +204,13 @@ Sources/speech-server/
     TranscriptionResponse.swift
     SpeechRequest.swift
     OpenAIError.swift
+  Wyoming/
+    WyomingEvent.swift             # Protocol event model
+    WyomingFrameDecoder.swift      # Wire format parser
+    WyomingNIOHandler.swift        # NIO channel handler
+    WyomingServer.swift            # TCP server bootstrap
+    WyomingSession.swift           # Session state machine (STT + TTS)
+    WyomingWAVWriter.swift         # PCM-to-WAV for STT handoff
 ```
 
 ## License
