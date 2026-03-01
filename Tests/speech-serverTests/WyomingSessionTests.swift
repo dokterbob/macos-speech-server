@@ -162,16 +162,14 @@ final class WyomingSessionTests: XCTestCase {
         for r in responses { allData.append(r) }
         let events = decoder.process(allData)
 
-        // One complete sequence per sentence: (audio-start + audio-chunk + audio-stop) × 2 = 6 events
-        XCTAssertEqual(events.count, 6)
+        // audio-start + 2×audio-chunk + audio-stop = 4 events
+        XCTAssertEqual(events.count, 4)
         XCTAssertEqual(events[0].type, "audio-start")
         XCTAssertEqual(events[1].type, "audio-chunk")
-        XCTAssertEqual(events[2].type, "audio-stop")
-        XCTAssertEqual(events[3].type, "audio-start")
-        XCTAssertEqual(events[4].type, "audio-chunk")
-        XCTAssertEqual(events[5].type, "audio-stop")
+        XCTAssertEqual(events[2].type, "audio-chunk")
+        XCTAssertEqual(events[3].type, "audio-stop")
         XCTAssertEqual(events[1].payload, chunk1)
-        XCTAssertEqual(events[4].payload, chunk2)
+        XCTAssertEqual(events[2].payload, chunk2)
     }
 
     // MARK: - Streaming behaviour
@@ -199,9 +197,8 @@ final class WyomingSessionTests: XCTestCase {
             }
         }
 
-        // Verify ordering: one complete sequence per sentence, in order
-        XCTAssertEqual(receivedEventTypes, ["audio-start", "audio-chunk", "audio-stop",
-                                            "audio-start", "audio-chunk", "audio-stop"])
+        // Verify ordering: audio-start, then two audio-chunks, then audio-stop
+        XCTAssertEqual(receivedEventTypes, ["audio-start", "audio-chunk", "audio-chunk", "audio-stop"])
     }
 
     // MARK: - Voice defaulting
