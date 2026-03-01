@@ -142,20 +142,21 @@ actor WyomingSession {
         var chunkCount = 0
 
         do {
-            // Delay audio-start until the first chunk arrives so that a completely
-            // failed or empty synthesis sends no audio events at all.
+            // Send one complete audio-start / audio-chunk / audio-stop sequence per
+            // sentence chunk. Home Assistant's Wyoming TTS client accumulates PCM
+            // until audio-stop and then plays; sending a complete sequence per
+            // sentence lets HA play each sentence as it arrives rather than waiting
+            // for the full response. An empty or failed synthesis sends nothing.
             for try await chunk in ttsService.synthesizeStream(text: text, voice: voice) {
-                if chunkCount == 0 {
-                    let audioStart = WyomingEvent(
-                        type: "audio-start",
-                        data: [
-                            "rate": .int(rate),
-                            "width": .int(width),
-                            "channels": .int(channels)
-                        ]
-                    )
-                    continuation.yield(audioStart.serialize())
-                }
+                let audioStart = WyomingEvent(
+                    type: "audio-start",
+                    data: [
+                        "rate": .int(rate),
+                        "width": .int(width),
+                        "channels": .int(channels)
+                    ]
+                )
+                continuation.yield(audioStart.serialize())
                 let audioChunk = WyomingEvent(
                     type: "audio-chunk",
                     data: [
@@ -166,19 +167,13 @@ actor WyomingSession {
                     payload: chunk
                 )
                 continuation.yield(audioChunk.serialize())
+                continuation.yield(WyomingEvent(type: "audio-stop").serialize())
                 chunkCount += 1
             }
 
-            if chunkCount > 0 {
-                continuation.yield(WyomingEvent(type: "audio-stop").serialize())
-            }
             logger.notice("Wyoming: synthesize complete, \(chunkCount) chunk(s)")
         } catch {
             logger.error("TTS error during synthesize: \(error)")
-            // If synthesis failed mid-stream, close the open audio sequence.
-            if chunkCount > 0 {
-                continuation.yield(WyomingEvent(type: "audio-stop").serialize())
-            }
         }
     }
 
