@@ -3,6 +3,15 @@ import XCTest
 
 final class WyomingSessionTests: XCTestCase {
 
+    // MARK: - Helper
+
+    /// Collects all values from an AsyncStream into an array.
+    private func collect(_ stream: AsyncStream<Data>) async -> [Data] {
+        var results: [Data] = []
+        for await data in stream { results.append(data) }
+        return results
+    }
+
     // MARK: - describe → info
 
     func testDescribeReturnsInfo() async throws {
@@ -10,7 +19,8 @@ final class WyomingSessionTests: XCTestCase {
             ttsService: MockTTSService(),
             sttService: MockSTTService()
         )
-        let responses = await session.handle(event: WyomingEvent(type: "describe"))
+        let stream = await session.handle(event: WyomingEvent(type: "describe"))
+        let responses = await collect(stream)
         XCTAssertEqual(responses.count, 1)
 
         // Decode the response event
@@ -25,7 +35,8 @@ final class WyomingSessionTests: XCTestCase {
             ttsService: MockTTSService(),
             sttService: MockSTTService()
         )
-        let responses = await session.handle(event: WyomingEvent(type: "describe"))
+        let stream = await session.handle(event: WyomingEvent(type: "describe"))
+        let responses = await collect(stream)
         var decoder = WyomingFrameDecoder()
         let events = decoder.process(responses[0])
         let info = events[0]
@@ -84,14 +95,15 @@ final class WyomingSessionTests: XCTestCase {
             sttService: MockSTTService()
         )
 
-        // describe first
+        // describe first (discard stream — state is unchanged synchronously)
         _ = await session.handle(event: WyomingEvent(type: "describe"))
 
         // then synthesize — should still work
-        let responses = await session.handle(event: WyomingEvent(
+        let stream = await session.handle(event: WyomingEvent(
             type: "synthesize",
             data: ["text": .string("hello")]
         ))
+        let responses = await collect(stream)
         XCTAssertFalse(responses.isEmpty)
     }
 
@@ -104,10 +116,11 @@ final class WyomingSessionTests: XCTestCase {
             sttService: MockSTTService()
         )
 
-        let responses = await session.handle(event: WyomingEvent(
+        let stream = await session.handle(event: WyomingEvent(
             type: "synthesize",
             data: ["text": .string("Hello, world!")]
         ))
+        let responses = await collect(stream)
 
         // Decode all response events
         var decoder = WyomingFrameDecoder()
@@ -138,10 +151,11 @@ final class WyomingSessionTests: XCTestCase {
             sttService: MockSTTService()
         )
 
-        let responses = await session.handle(event: WyomingEvent(
+        let stream = await session.handle(event: WyomingEvent(
             type: "synthesize",
             data: ["text": .string("Two sentences. Here is one more.")]
         ))
+        let responses = await collect(stream)
 
         var decoder = WyomingFrameDecoder()
         var allData = Data()
@@ -158,6 +172,35 @@ final class WyomingSessionTests: XCTestCase {
         XCTAssertEqual(events[2].payload, chunk2)
     }
 
+    // MARK: - Streaming behaviour
+
+    func testSynthesizeStreamsIncrementally() async throws {
+        // Verify that audio-start arrives first, then each chunk, then audio-stop — in order,
+        // without waiting for all chunks to be produced.
+        let chunk1 = Data(repeating: 0x01, count: 64)
+        let chunk2 = Data(repeating: 0x02, count: 64)
+        let session = WyomingSession(
+            ttsService: MockTTSService(chunks: [chunk1, chunk2]),
+            sttService: MockSTTService()
+        )
+
+        var receivedEventTypes: [String] = []
+        var decoder = WyomingFrameDecoder()
+
+        for await data in await session.handle(event: WyomingEvent(
+            type: "synthesize",
+            data: ["text": .string("hello world")]
+        )) {
+            let events = decoder.process(data)
+            for event in events {
+                receivedEventTypes.append(event.type)
+            }
+        }
+
+        // Verify ordering: audio-start, then two audio-chunks, then audio-stop
+        XCTAssertEqual(receivedEventTypes, ["audio-start", "audio-chunk", "audio-chunk", "audio-stop"])
+    }
+
     // MARK: - Voice defaulting
 
     func testSynthesizeDefaultsToAlba() async throws {
@@ -168,10 +211,11 @@ final class WyomingSessionTests: XCTestCase {
             ttsService: MockTTSService(chunks: [Data([0x01])]),
             sttService: MockSTTService()
         )
-        let responses = await session.handle(event: WyomingEvent(
+        let stream = await session.handle(event: WyomingEvent(
             type: "synthesize",
             data: ["text": .string("test")]
         ))
+        let responses = await collect(stream)
         XCTAssertFalse(responses.isEmpty)
     }
 
@@ -180,10 +224,11 @@ final class WyomingSessionTests: XCTestCase {
             ttsService: MockTTSService(chunks: [Data([0x01])]),
             sttService: MockSTTService()
         )
-        let responses = await session.handle(event: WyomingEvent(
+        let stream = await session.handle(event: WyomingEvent(
             type: "synthesize",
             data: ["text": .string("test"), "voice": .string("alba")]
         ))
+        let responses = await collect(stream)
         XCTAssertFalse(responses.isEmpty)
     }
 
@@ -192,13 +237,14 @@ final class WyomingSessionTests: XCTestCase {
             ttsService: MockTTSService(chunks: [Data([0x01])]),
             sttService: MockSTTService()
         )
-        let responses = await session.handle(event: WyomingEvent(
+        let stream = await session.handle(event: WyomingEvent(
             type: "synthesize",
             data: [
                 "text": .string("test"),
                 "voice": .object(["name": .string("alba")])
             ]
         ))
+        let responses = await collect(stream)
         XCTAssertFalse(responses.isEmpty)
     }
 
@@ -210,28 +256,32 @@ final class WyomingSessionTests: XCTestCase {
             sttService: MockSTTService(transcript: "hello world")
         )
 
-        // 1. transcribe — no response
-        let r1 = await session.handle(event: WyomingEvent(type: "transcribe"))
+        // 1. transcribe — no response (state → awaitingAudio synchronously)
+        let stream1 = await session.handle(event: WyomingEvent(type: "transcribe"))
+        let r1 = await collect(stream1)
         XCTAssertTrue(r1.isEmpty)
 
         // 2. audio-start — no response
-        let r2 = await session.handle(event: WyomingEvent(
+        let stream2 = await session.handle(event: WyomingEvent(
             type: "audio-start",
             data: ["rate": .int(16000), "width": .int(2), "channels": .int(1)]
         ))
+        let r2 = await collect(stream2)
         XCTAssertTrue(r2.isEmpty)
 
         // 3. audio-chunk — no response (just buffering)
         let pcm = Data(repeating: 0xAB, count: 32000)  // 1 second of 16kHz 16-bit mono
-        let r3 = await session.handle(event: WyomingEvent(
+        let stream3 = await session.handle(event: WyomingEvent(
             type: "audio-chunk",
             data: ["rate": .int(16000), "width": .int(2), "channels": .int(1)],
             payload: pcm
         ))
+        let r3 = await collect(stream3)
         XCTAssertTrue(r3.isEmpty)
 
         // 4. audio-stop — should return transcript
-        let r4 = await session.handle(event: WyomingEvent(type: "audio-stop"))
+        let stream4 = await session.handle(event: WyomingEvent(type: "audio-stop"))
+        let r4 = await collect(stream4)
         XCTAssertEqual(r4.count, 1)
 
         var decoder = WyomingFrameDecoder()
@@ -247,7 +297,7 @@ final class WyomingSessionTests: XCTestCase {
             sttService: MockSTTService(transcript: "done")
         )
 
-        // Complete STT flow
+        // Complete STT flow (state mutations are synchronous — discard streams)
         _ = await session.handle(event: WyomingEvent(type: "transcribe"))
         _ = await session.handle(event: WyomingEvent(
             type: "audio-start",
@@ -261,10 +311,11 @@ final class WyomingSessionTests: XCTestCase {
         _ = await session.handle(event: WyomingEvent(type: "audio-stop"))
 
         // Should now be back in idle — synthesize should work
-        let responses = await session.handle(event: WyomingEvent(
+        let stream = await session.handle(event: WyomingEvent(
             type: "synthesize",
             data: ["text": .string("hello")]
         ))
+        let responses = await collect(stream)
         XCTAssertFalse(responses.isEmpty)
     }
 
@@ -275,10 +326,11 @@ final class WyomingSessionTests: XCTestCase {
             ttsService: MockTTSService(shouldFail: true),
             sttService: MockSTTService()
         )
-        let responses = await session.handle(event: WyomingEvent(
+        let stream = await session.handle(event: WyomingEvent(
             type: "synthesize",
             data: ["text": .string("hello")]
         ))
+        let responses = await collect(stream)
         // On TTS error, session returns empty (no crash)
         XCTAssertTrue(responses.isEmpty)
     }
@@ -299,7 +351,8 @@ final class WyomingSessionTests: XCTestCase {
             data: ["rate": .int(16000), "width": .int(2), "channels": .int(1)],
             payload: Data(repeating: 0, count: 32000)
         ))
-        let responses = await session.handle(event: WyomingEvent(type: "audio-stop"))
+        let stream = await session.handle(event: WyomingEvent(type: "audio-stop"))
+        let responses = await collect(stream)
         // On STT error, session returns empty (no crash), state resets to idle
         XCTAssertTrue(responses.isEmpty)
     }
@@ -309,7 +362,8 @@ final class WyomingSessionTests: XCTestCase {
             ttsService: MockTTSService(),
             sttService: MockSTTService()
         )
-        let responses = await session.handle(event: WyomingEvent(type: "unknown-event-xyz"))
+        let stream = await session.handle(event: WyomingEvent(type: "unknown-event-xyz"))
+        let responses = await collect(stream)
         XCTAssertTrue(responses.isEmpty)
     }
 
@@ -328,7 +382,8 @@ final class WyomingSessionTests: XCTestCase {
         ))
 
         // describe should work even during recording
-        let infoResponses = await session.handle(event: WyomingEvent(type: "describe"))
+        let stream = await session.handle(event: WyomingEvent(type: "describe"))
+        let infoResponses = await collect(stream)
         XCTAssertEqual(infoResponses.count, 1)
         var decoder = WyomingFrameDecoder()
         let events = decoder.process(infoResponses[0])

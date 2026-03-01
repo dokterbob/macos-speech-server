@@ -30,112 +30,83 @@ actor WyomingSession {
         self.logger = logger
     }
 
-    /// Handle an incoming Wyoming event. Returns serialized wire bytes for all response events.
-    func handle(event: WyomingEvent) async -> [Data] {
+    /// Handle an incoming Wyoming event. Returns a stream of serialized wire bytes for response events.
+    ///
+    /// For `synthesize` events, bytes are yielded incrementally as TTS chunks arrive (audio-start,
+    /// then each audio-chunk, then audio-stop). For all other events, any response bytes are
+    /// pre-buffered and the stream finishes quickly. State mutations always happen synchronously
+    /// before the stream is returned.
+    func handle(event: WyomingEvent) -> AsyncStream<Data> {
         switch event.type {
         case "describe":
             logger.notice("Wyoming: describe received, sending info")
-            return [makeInfoEvent().serialize()]
+            let data = makeInfoEvent().serialize()
+            return AsyncStream { continuation in
+                continuation.yield(data)
+                continuation.finish()
+            }
 
         case "synthesize":
             let text = event.data["text"]?.stringValue ?? ""
             logger.notice("Wyoming: synthesize received, text='\(text.prefix(60))'")
-            return await handleSynthesize(event: event)
+            let voice = resolveVoice(from: event)
+            return AsyncStream { continuation in
+                Task {
+                    await self.streamSynthesize(text: text, voice: voice, continuation: continuation)
+                    continuation.finish()
+                }
+            }
 
         case "transcribe":
             logger.notice("Wyoming: transcribe received, awaiting audio")
             state = .awaitingAudio
-            return []
+            return AsyncStream { continuation in continuation.finish() }
 
         case "audio-start":
             logger.notice("Wyoming: audio-start received")
-            return handleAudioStart(event: event)
+            applyAudioStart(event: event)
+            return AsyncStream { continuation in continuation.finish() }
 
         case "audio-chunk":
-            return handleAudioChunk(event: event)
+            applyAudioChunk(event: event)
+            return AsyncStream { continuation in continuation.finish() }
 
         case "audio-stop":
             logger.notice("Wyoming: audio-stop received, transcribing")
-            return await handleAudioStop()
+            guard case .recording(let writer, _, _, _) = state else {
+                state = .idle
+                return AsyncStream { continuation in continuation.finish() }
+            }
+            state = .idle
+            return AsyncStream { continuation in
+                Task {
+                    await self.streamSTTResult(writer: writer, continuation: continuation)
+                    continuation.finish()
+                }
+            }
 
         default:
             logger.warning("Unknown Wyoming event type: \(event.type)")
-            return []
+            return AsyncStream { continuation in continuation.finish() }
         }
     }
 
-    // MARK: - Event handlers
+    // MARK: - Private helpers
 
-    private func handleSynthesize(event: WyomingEvent) async -> [Data] {
-        guard let text = event.data["text"]?.stringValue, !text.isEmpty else {
-            logger.warning("synthesize event missing text")
-            return []
-        }
-
-        // Voice can be a string or an object with a "name" field; default to "alba"
-        let voice: String
+    private func resolveVoice(from event: WyomingEvent) -> String {
         if let voiceStr = event.data["voice"]?.stringValue {
-            voice = voiceStr
+            return voiceStr
         } else if case .object(let voiceObj) = event.data["voice"],
                   let voiceName = voiceObj["name"]?.stringValue {
-            voice = voiceName
-        } else {
-            voice = "alba"
+            return voiceName
         }
-
-        do {
-            var pcmChunks: [Data] = []
-            for try await chunk in ttsService.synthesizeStream(text: text, voice: voice) {
-                pcmChunks.append(chunk)
-            }
-
-            // PocketTTS outputs 24 kHz, 16-bit mono PCM
-            let rate = 24000
-            let width = 2
-            let channels = 1
-
-            var responses: [Data] = []
-
-            // audio-start
-            let audioStart = WyomingEvent(
-                type: "audio-start",
-                data: [
-                    "rate": .int(rate),
-                    "width": .int(width),
-                    "channels": .int(channels)
-                ]
-            )
-            responses.append(audioStart.serialize())
-
-            // audio-chunk for each PCM chunk
-            for chunk in pcmChunks {
-                let audioChunk = WyomingEvent(
-                    type: "audio-chunk",
-                    data: [
-                        "rate": .int(rate),
-                        "width": .int(width),
-                        "channels": .int(channels)
-                    ],
-                    payload: chunk
-                )
-                responses.append(audioChunk.serialize())
-            }
-
-            // audio-stop
-            responses.append(WyomingEvent(type: "audio-stop").serialize())
-
-            logger.notice("Wyoming: synthesize complete, \(pcmChunks.count) chunk(s)")
-            return responses
-        } catch {
-            logger.error("TTS error during synthesize: \(error)")
-            return []
-        }
+        return "alba"
     }
 
-    private func handleAudioStart(event: WyomingEvent) -> [Data] {
+    private func applyAudioStart(event: WyomingEvent) {
         guard case .awaitingAudio = state else {
             logger.warning("audio-start received in unexpected state, ignoring")
-            return []
+            return
         }
         let rate = event.data["rate"]?.intValue ?? 16000
         let width = event.data["width"]?.intValue ?? 2
@@ -146,27 +117,72 @@ actor WyomingSession {
             bitsPerSample: width * 8
         )
         state = .recording(writer: writer, rate: rate, width: width, channels: channels)
-        return []
     }
 
-    private func handleAudioChunk(event: WyomingEvent) -> [Data] {
+    private func applyAudioChunk(event: WyomingEvent) {
         guard case .recording(var writer, let rate, let width, let channels) = state else {
-            return []
+            return
         }
         if let pcm = event.payload {
             writer.append(pcm)
         }
         state = .recording(writer: writer, rate: rate, width: width, channels: channels)
-        return []
     }
 
-    private func handleAudioStop() async -> [Data] {
-        guard case .recording(let writer, _, _, _) = state else {
-            state = .idle
-            return []
+    private func streamSynthesize(text: String, voice: String, continuation: AsyncStream<Data>.Continuation) async {
+        guard !text.isEmpty else {
+            logger.warning("synthesize event missing text")
+            return
         }
-        state = .idle
 
+        // PocketTTS outputs 24 kHz, 16-bit mono PCM
+        let rate = 24000
+        let width = 2
+        let channels = 1
+        var chunkCount = 0
+
+        do {
+            // Delay audio-start until the first chunk arrives so that a completely
+            // failed or empty synthesis sends no audio events at all.
+            for try await chunk in ttsService.synthesizeStream(text: text, voice: voice) {
+                if chunkCount == 0 {
+                    let audioStart = WyomingEvent(
+                        type: "audio-start",
+                        data: [
+                            "rate": .int(rate),
+                            "width": .int(width),
+                            "channels": .int(channels)
+                        ]
+                    )
+                    continuation.yield(audioStart.serialize())
+                }
+                let audioChunk = WyomingEvent(
+                    type: "audio-chunk",
+                    data: [
+                        "rate": .int(rate),
+                        "width": .int(width),
+                        "channels": .int(channels)
+                    ],
+                    payload: chunk
+                )
+                continuation.yield(audioChunk.serialize())
+                chunkCount += 1
+            }
+
+            if chunkCount > 0 {
+                continuation.yield(WyomingEvent(type: "audio-stop").serialize())
+            }
+            logger.notice("Wyoming: synthesize complete, \(chunkCount) chunk(s)")
+        } catch {
+            logger.error("TTS error during synthesize: \(error)")
+            // If synthesis failed mid-stream, close the open audio sequence.
+            if chunkCount > 0 {
+                continuation.yield(WyomingEvent(type: "audio-stop").serialize())
+            }
+        }
+    }
+
+    private func streamSTTResult(writer: WyomingWAVWriter, continuation: AsyncStream<Data>.Continuation) async {
         do {
             let audioURL = try writer.writeToTempFile()
             defer { try? FileManager.default.removeItem(at: audioURL) }
@@ -177,10 +193,9 @@ actor WyomingSession {
                 type: "transcript",
                 data: ["text": .string(result.text)]
             )
-            return [transcript.serialize()]
+            continuation.yield(transcript.serialize())
         } catch {
             logger.error("STT error during audio-stop: \(error)")
-            return []
         }
     }
 

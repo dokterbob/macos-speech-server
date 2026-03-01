@@ -172,8 +172,8 @@ Example: `{"type":"audio-chunk","version":"1.0.0","data_length":36,"payload_leng
 | `WyomingEvent.swift` | `WyomingEvent` struct + `WyomingValue` enum (supports string/int/double/bool/null/array/object). `serialize()` produces wire bytes. |
 | `WyomingFrameDecoder.swift` | Pure Swift state machine. `mutating func process(_ bytes: Data) -> [WyomingEvent]`. No NIO imports. |
 | `WyomingWAVWriter.swift` | Accumulates PCM chunks; `makeWAV()` / `writeToTempFile()` for STT handoff. |
-| `WyomingSession.swift` | `actor` combining TTS and STT. Dispatches by event type; holds state machine for STT recording flow. |
-| `WyomingNIOHandler.swift` | `ChannelInboundHandler` (thin NIO glue). Feeds bytes to `WyomingFrameDecoder`, calls `WyomingSession`, writes responses. |
+| `WyomingSession.swift` | `actor` combining TTS and STT. `handle(event:) -> AsyncStream<Data>` — state mutations are synchronous; TTS/STT I/O runs in Tasks that yield to the stream. |
+| `WyomingNIOHandler.swift` | `ChannelInboundHandler` (thin NIO glue). Feeds bytes to `WyomingFrameDecoder`, iterates `AsyncStream` from session, writes each event to the channel immediately. |
 | `WyomingServer.swift` | `ServerBootstrap` + `LifecycleHandler`. Binds single TCP port, creates session per connection. |
 
 **Session state machine**:
@@ -187,6 +187,8 @@ any state ──describe──→ [send info with both asr + tts capabilities] (
 ```
 
 The `info` response advertises both `asr` and `tts` arrays so Home Assistant knows this single port handles both services.
+
+**Streaming TTS**: `handle(event:)` returns `AsyncStream<Data>` (non-async). For `synthesize`, the stream yields `audio-start` + each `audio-chunk` + `audio-stop` incrementally as TTS chunks arrive — `audio-start` is withheld until the first chunk so a completely failed synthesis sends nothing. State mutations (e.g. `state = .awaitingAudio`) happen synchronously before the stream is returned, so callers can immediately make the next `handle` call without draining the stream first. All other event types pre-fill the stream synchronously and finish immediately.
 
 **Config** (`wyoming` section in `speech-server.yaml`):
 ```yaml
@@ -202,7 +204,7 @@ wyoming:
 | `WyomingEventTests.swift` | serialize/deserialize, WyomingValue conversions, round-trip | No |
 | `WyomingFrameDecoderTests.swift` | Header-only, with data, with payload, partial feeds, multi-event, reset | No |
 | `WyomingWAVWriterTests.swift` | Valid WAV header bytes, multi-chunk, cleanup, custom sample rates | No |
-| `WyomingSessionTests.swift` | describe→info, synthesize→audio sequence, STT flow, errors (mock services) | No |
+| `WyomingSessionTests.swift` | describe→info, synthesize→audio sequence, STT flow, errors, streaming order (mock services) | No |
 | `Helpers/MockServices.swift` | `MockTTSService` + `MockSTTService` for session tests | No |
 
 ### Error handling

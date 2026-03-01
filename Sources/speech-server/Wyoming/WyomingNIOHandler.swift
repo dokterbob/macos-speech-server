@@ -5,8 +5,8 @@ import NIOCore
 /// NIO `ChannelInboundHandler` that bridges the Wyoming framing layer to `WyomingSession`.
 ///
 /// Bytes arriving on the channel are fed into `WyomingFrameDecoder`; any complete
-/// `WyomingEvent`s are dispatched to the session via a Swift `Task`. Responses are
-/// written back to the channel on the event loop.
+/// `WyomingEvent`s are dispatched to the session via a Swift `Task`. Response bytes
+/// are written to the channel as they arrive from the session's `AsyncStream`.
 ///
 /// `frameDecoder` is only ever accessed from `channelRead`, which NIO guarantees
 /// runs on the channel's event loop thread — hence `@unchecked Sendable` is sound.
@@ -45,15 +45,10 @@ final class WyomingChannelHandler: ChannelInboundHandler, @unchecked Sendable {
         Task {
             for event in events {
                 log.notice("Wyoming event received: \(event.type)")
-                let responses = await session.handle(event: event)
-                guard !responses.isEmpty else { continue }
-                log.notice("Wyoming sending \(responses.count) response(s) for event '\(event.type)'")
-                channel.eventLoop.execute {
-                    for responseData in responses {
-                        var outBuf = channel.allocator.buffer(capacity: responseData.count)
-                        outBuf.writeBytes(responseData)
-                        channel.writeAndFlush(outBuf, promise: nil)
-                    }
+                for await responseData in await session.handle(event: event) {
+                    var outBuf = channel.allocator.buffer(capacity: responseData.count)
+                    outBuf.writeBytes(responseData)
+                    channel.writeAndFlush(outBuf, promise: nil)
                 }
             }
         }
