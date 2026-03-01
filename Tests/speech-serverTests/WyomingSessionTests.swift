@@ -367,6 +367,244 @@ final class WyomingSessionTests: XCTestCase {
         XCTAssertTrue(responses.isEmpty)
     }
 
+    // MARK: - Streaming synthesis
+
+    func testInfoAdvertisesStreamingSupport() async throws {
+        let session = WyomingSession(
+            ttsService: MockTTSService(),
+            sttService: MockSTTService()
+        )
+        let stream = await session.handle(event: WyomingEvent(type: "describe"))
+        let responses = await collect(stream)
+        var decoder = WyomingFrameDecoder()
+        let events = decoder.process(responses[0])
+        let info = events[0]
+
+        let ttsArray = info.data["tts"]?.arrayValue
+        XCTAssertNotNil(ttsArray)
+        let ttsProgram = ttsArray![0].objectValue
+        XCTAssertNotNil(ttsProgram)
+        XCTAssertEqual(ttsProgram?["supports_synthesize_streaming"]?.boolValue, true)
+    }
+
+    func testStreamingSynthesizeBasicFlow() async throws {
+        let pcm = Data(repeating: 0xAB, count: 64)
+        let session = WyomingSession(
+            ttsService: MockTTSService(chunks: [pcm]),
+            sttService: MockSTTService()
+        )
+
+        // synthesize-start: no audio, empty stream
+        let r1 = await collect(await session.handle(event: WyomingEvent(
+            type: "synthesize-start",
+            data: ["voice": .string("alba")]
+        )))
+        XCTAssertTrue(r1.isEmpty)
+
+        // synthesize-chunk with a complete sentence → audio produced
+        let r2 = await collect(await session.handle(event: WyomingEvent(
+            type: "synthesize-chunk",
+            data: ["text": .string("Hello.")]
+        )))
+
+        // synthesize-stop with empty buffer → only synthesize-stopped
+        let r3 = await collect(await session.handle(event: WyomingEvent(type: "synthesize-stop")))
+
+        var decoder = WyomingFrameDecoder()
+        var allData = Data()
+        for d in r2 + r3 { allData.append(d) }
+        let events = decoder.process(allData)
+
+        // audio-start, audio-chunk, audio-stop, synthesize-stopped
+        XCTAssertEqual(events.count, 4)
+        XCTAssertEqual(events[0].type, "audio-start")
+        XCTAssertEqual(events[1].type, "audio-chunk")
+        XCTAssertEqual(events[1].payload, pcm)
+        XCTAssertEqual(events[2].type, "audio-stop")
+        XCTAssertEqual(events[3].type, "synthesize-stopped")
+    }
+
+    func testStreamingSynthesizeMultipleSentences() async throws {
+        let pcm = Data(repeating: 0x42, count: 32)
+        let session = WyomingSession(
+            ttsService: MockTTSService(chunks: [pcm]),
+            sttService: MockSTTService()
+        )
+
+        _ = await collect(await session.handle(event: WyomingEvent(
+            type: "synthesize-start",
+            data: ["voice": .string("alba")]
+        )))
+
+        // First chunk: complete sentence
+        let r2 = await collect(await session.handle(event: WyomingEvent(
+            type: "synthesize-chunk",
+            data: ["text": .string("Hello. ")]
+        )))
+
+        // Second chunk: another complete sentence
+        let r3 = await collect(await session.handle(event: WyomingEvent(
+            type: "synthesize-chunk",
+            data: ["text": .string("World.")]
+        )))
+
+        let r4 = await collect(await session.handle(event: WyomingEvent(type: "synthesize-stop")))
+
+        var decoder = WyomingFrameDecoder()
+        var allData = Data()
+        for d in r2 + r3 + r4 { allData.append(d) }
+        let events = decoder.process(allData)
+
+        // Two complete audio sequences + synthesize-stopped
+        let types = events.map { $0.type }
+        XCTAssertEqual(types, [
+            "audio-start", "audio-chunk", "audio-stop",
+            "audio-start", "audio-chunk", "audio-stop",
+            "synthesize-stopped"
+        ])
+    }
+
+    func testStreamingSynthesizeSentenceDetection() async throws {
+        let pcm = Data(repeating: 0x33, count: 32)
+        let session = WyomingSession(
+            ttsService: MockTTSService(chunks: [pcm]),
+            sttService: MockSTTService()
+        )
+
+        _ = await collect(await session.handle(event: WyomingEvent(
+            type: "synthesize-start",
+            data: ["voice": .string("alba")]
+        )))
+
+        // Chunk with one complete sentence and one incomplete fragment
+        let r2 = await collect(await session.handle(event: WyomingEvent(
+            type: "synthesize-chunk",
+            data: ["text": .string("Hello world. This is")]
+        )))
+
+        // synthesize-stop: remaining "This is" should be synthesized
+        let r3 = await collect(await session.handle(event: WyomingEvent(type: "synthesize-stop")))
+
+        var decoder = WyomingFrameDecoder()
+        var allData = Data()
+        for d in r2 + r3 { allData.append(d) }
+        let events = decoder.process(allData)
+
+        // "Hello world." synthesized from chunk, "This is." synthesized at stop
+        let types = events.map { $0.type }
+        XCTAssertEqual(types, [
+            "audio-start", "audio-chunk", "audio-stop",
+            "audio-start", "audio-chunk", "audio-stop",
+            "synthesize-stopped"
+        ])
+    }
+
+    func testStreamingSynthesizeIgnoresBackwardCompatSynthesize() async throws {
+        let pcm = Data(repeating: 0x01, count: 32)
+        let session = WyomingSession(
+            ttsService: MockTTSService(chunks: [pcm]),
+            sttService: MockSTTService()
+        )
+
+        _ = await collect(await session.handle(event: WyomingEvent(
+            type: "synthesize-start",
+            data: ["voice": .string("alba")]
+        )))
+        _ = await collect(await session.handle(event: WyomingEvent(
+            type: "synthesize-chunk",
+            data: ["text": .string("Hello.")]
+        )))
+
+        // synthesize event during streaming mode must be ignored (backward compat)
+        let rIgnored = await collect(await session.handle(event: WyomingEvent(
+            type: "synthesize",
+            data: ["text": .string("Full text here.")]
+        )))
+        XCTAssertTrue(rIgnored.isEmpty)
+
+        // synthesize-stop should still finalise the streaming session
+        let rStop = await collect(await session.handle(event: WyomingEvent(type: "synthesize-stop")))
+        var decoder = WyomingFrameDecoder()
+        var allData = Data()
+        for d in rStop { allData.append(d) }
+        let events = decoder.process(allData)
+        XCTAssertTrue(events.contains(where: { $0.type == "synthesize-stopped" }))
+    }
+
+    func testStreamingSynthesizeEmptyBuffer() async throws {
+        let session = WyomingSession(
+            ttsService: MockTTSService(chunks: []),
+            sttService: MockSTTService()
+        )
+
+        _ = await collect(await session.handle(event: WyomingEvent(
+            type: "synthesize-start",
+            data: ["voice": .string("alba")]
+        )))
+
+        // synthesize-stop with no chunks → only synthesize-stopped, no audio
+        let responses = await collect(await session.handle(event: WyomingEvent(type: "synthesize-stop")))
+
+        var decoder = WyomingFrameDecoder()
+        var allData = Data()
+        for d in responses { allData.append(d) }
+        let events = decoder.process(allData)
+
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events[0].type, "synthesize-stopped")
+    }
+
+    func testStreamingSynthesizeError() async throws {
+        let session = WyomingSession(
+            ttsService: MockTTSService(shouldFail: true),
+            sttService: MockSTTService()
+        )
+
+        _ = await collect(await session.handle(event: WyomingEvent(
+            type: "synthesize-start",
+            data: ["voice": .string("alba")]
+        )))
+        // TTS fails for this sentence but we don't crash
+        let rChunk = await collect(await session.handle(event: WyomingEvent(
+            type: "synthesize-chunk",
+            data: ["text": .string("Hello.")]
+        )))
+
+        let rStop = await collect(await session.handle(event: WyomingEvent(type: "synthesize-stop")))
+
+        var decoder = WyomingFrameDecoder()
+        var allData = Data()
+        for d in rChunk + rStop { allData.append(d) }
+        let events = decoder.process(allData)
+
+        // No audio chunks since TTS failed, but synthesize-stopped must still arrive
+        XCTAssertFalse(events.contains(where: { $0.type == "audio-chunk" }))
+        XCTAssertTrue(events.contains(where: { $0.type == "synthesize-stopped" }))
+    }
+
+    func testStreamingSynthesizeResetsToIdle() async throws {
+        let pcm = Data(repeating: 0x42, count: 32)
+        let session = WyomingSession(
+            ttsService: MockTTSService(chunks: [pcm]),
+            sttService: MockSTTService()
+        )
+
+        // Complete streaming flow
+        _ = await collect(await session.handle(event: WyomingEvent(
+            type: "synthesize-start",
+            data: ["voice": .string("alba")]
+        )))
+        _ = await collect(await session.handle(event: WyomingEvent(type: "synthesize-stop")))
+
+        // State should be idle — regular synthesize must work
+        let stream = await session.handle(event: WyomingEvent(
+            type: "synthesize",
+            data: ["text": .string("hello")]
+        ))
+        let responses = await collect(stream)
+        XCTAssertFalse(responses.isEmpty)
+    }
+
     // MARK: - Mixed TTS+STT on same session
 
     func testDescribeCanBeCalledDuringRecording() async throws {

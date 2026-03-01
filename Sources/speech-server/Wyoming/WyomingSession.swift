@@ -6,11 +6,15 @@ import Logging
 /// State machine:
 /// ```
 /// idle ──synthesize──→ [call TTSService.synthesizeStream, send audio-start/chunk/stop] ──→ idle
+/// idle ──synthesize-start──→ streamingSynthesize(voice, "")
+/// streamingSynthesize ──synthesize-chunk──→ [detect sentences, send audio per sentence] ──→ streamingSynthesize(voice, remainder)
+/// streamingSynthesize ──synthesize──→ [ignored, backward compat] (state unchanged)
+/// streamingSynthesize ──synthesize-stop──→ [synthesize remaining buffer, send audio + synthesize-stopped] ──→ idle
 /// idle ──transcribe──→ awaitingAudio
 /// awaitingAudio ──audio-start──→ recording(WAVWriter)
 /// recording ──audio-chunk──→ recording (append PCM)
 /// recording ──audio-stop──→ [call STTService.transcribe, send transcript] ──→ idle
-/// any state ──describe──→ [send info] (state unchanged)
+/// any state ──describe──→ [send info with both asr + tts capabilities] (state unchanged)
 /// ```
 actor WyomingSession {
     private let ttsService: any TTSService
@@ -22,6 +26,7 @@ actor WyomingSession {
         case idle
         case awaitingAudio
         case recording(writer: WyomingWAVWriter, rate: Int, width: Int, channels: Int)
+        case streamingSynthesize(voice: String, textBuffer: String)
     }
 
     init(ttsService: any TTSService, sttService: any STTService, logger: Logger = Logger(label: "WyomingSession")) {
@@ -47,12 +52,70 @@ actor WyomingSession {
             }
 
         case "synthesize":
+            // Ignore during streaming synthesis (backward compat with clients that send
+            // synthesize after synthesize-start/chunk for the full text)
+            if case .streamingSynthesize = state {
+                logger.notice("Wyoming: synthesize received during streaming, ignoring (backward compat)")
+                return AsyncStream { continuation in continuation.finish() }
+            }
             let text = event.data["text"]?.stringValue ?? ""
             logger.notice("Wyoming: synthesize received, text='\(text.prefix(60))'")
             let voice = resolveVoice(from: event)
             return AsyncStream { continuation in
                 Task {
                     await self.streamSynthesize(text: text, voice: voice, continuation: continuation)
+                    continuation.finish()
+                }
+            }
+
+        case "synthesize-start":
+            guard case .idle = state else {
+                logger.warning("Wyoming: synthesize-start received in unexpected state, ignoring")
+                return AsyncStream { continuation in continuation.finish() }
+            }
+            let voice = resolveVoice(from: event)
+            logger.notice("Wyoming: synthesize-start received, voice='\(voice)'")
+            state = .streamingSynthesize(voice: voice, textBuffer: "")
+            return AsyncStream { continuation in continuation.finish() }
+
+        case "synthesize-chunk":
+            guard case .streamingSynthesize(let voice, let buffer) = state else {
+                logger.warning("Wyoming: synthesize-chunk received in unexpected state, ignoring")
+                return AsyncStream { continuation in continuation.finish() }
+            }
+            let newText = event.data["text"]?.stringValue ?? ""
+            let combined = buffer + newText
+            let (completeSentences, remainder) = splitCompleteSentences(combined)
+            state = .streamingSynthesize(voice: voice, textBuffer: remainder)
+
+            guard !completeSentences.isEmpty else {
+                return AsyncStream { continuation in continuation.finish() }
+            }
+            logger.notice("Wyoming: synthesize-chunk detected \(completeSentences.count) complete sentence(s)")
+            return AsyncStream { continuation in
+                Task {
+                    await self.streamSentences(completeSentences, voice: voice, continuation: continuation)
+                    continuation.finish()
+                }
+            }
+
+        case "synthesize-stop":
+            guard case .streamingSynthesize(let voice, let buffer) = state else {
+                logger.warning("Wyoming: synthesize-stop received in unexpected state, ignoring")
+                return AsyncStream { continuation in continuation.finish() }
+            }
+            state = .idle
+            let remainingText = buffer.trimmingCharacters(in: .whitespaces)
+            logger.notice("Wyoming: synthesize-stop received, remaining='\(remainingText.prefix(60))'")
+            return AsyncStream { continuation in
+                Task {
+                    if !remainingText.isEmpty {
+                        // Ensure terminal punctuation before synthesizing the final fragment
+                        var text = remainingText
+                        if let last = text.last, !".!?".contains(last) { text += "." }
+                        await self.streamSentences([text], voice: voice, continuation: continuation)
+                    }
+                    continuation.yield(WyomingEvent(type: "synthesize-stopped").serialize())
                     continuation.finish()
                 }
             }
@@ -129,6 +192,7 @@ actor WyomingSession {
         state = .recording(writer: writer, rate: rate, width: width, channels: channels)
     }
 
+    /// Synthesize `text` as a single unit (non-streaming path), yielding audio-start / chunk(s) / audio-stop.
     private func streamSynthesize(text: String, voice: String, continuation: AsyncStream<Data>.Continuation) async {
         guard !text.isEmpty else {
             logger.warning("synthesize event missing text")
@@ -178,6 +242,55 @@ actor WyomingSession {
             // If synthesis failed mid-stream, close the open audio sequence.
             if chunkCount > 0 {
                 continuation.yield(WyomingEvent(type: "audio-stop").serialize())
+            }
+        }
+    }
+
+    /// Synthesize each sentence in `sentences` individually, yielding one complete
+    /// audio-start / audio-chunk(s) / audio-stop sequence per sentence.
+    ///
+    /// Errors from individual sentences are logged and skipped; remaining sentences
+    /// continue to be synthesized. This is used by both synthesize-chunk (for
+    /// detected complete sentences) and synthesize-stop (for the remaining buffer).
+    private func streamSentences(_ sentences: [String], voice: String, continuation: AsyncStream<Data>.Continuation) async {
+        let rate = 24000
+        let width = 2
+        let channels = 1
+
+        for sentence in sentences {
+            var chunkCount = 0
+            do {
+                for try await chunk in ttsService.synthesizeStream(text: sentence, voice: voice) {
+                    if chunkCount == 0 {
+                        continuation.yield(WyomingEvent(
+                            type: "audio-start",
+                            data: [
+                                "rate": .int(rate),
+                                "width": .int(width),
+                                "channels": .int(channels)
+                            ]
+                        ).serialize())
+                    }
+                    continuation.yield(WyomingEvent(
+                        type: "audio-chunk",
+                        data: [
+                            "rate": .int(rate),
+                            "width": .int(width),
+                            "channels": .int(channels)
+                        ],
+                        payload: chunk
+                    ).serialize())
+                    chunkCount += 1
+                }
+                if chunkCount > 0 {
+                    continuation.yield(WyomingEvent(type: "audio-stop").serialize())
+                }
+            } catch {
+                logger.error("TTS error for sentence '\(sentence.prefix(60))': \(error)")
+                if chunkCount > 0 {
+                    continuation.yield(WyomingEvent(type: "audio-stop").serialize())
+                }
+                // Continue to next sentence
             }
         }
     }
@@ -244,7 +357,8 @@ actor WyomingSession {
             "attribution": attribution,
             "installed": .bool(true),
             "version": .string("1.0.0"),
-            "voices": .array([ttsVoice])
+            "voices": .array([ttsVoice]),
+            "supports_synthesize_streaming": .bool(true)
         ])
 
         return WyomingEvent(

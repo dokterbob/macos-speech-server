@@ -1,7 +1,6 @@
 import FluidAudio
 import Foundation
 import Logging
-import NaturalLanguage
 
 final class FluidTTSService: TTSService, @unchecked Sendable {
     private var pocketTtsManager: PocketTtsManager?
@@ -57,7 +56,7 @@ final class FluidTTSService: TTSService, @unchecked Sendable {
                         throw FluidTTSError.notInitialized
                     }
                     let input = self.sanitizeEmoji ? sanitizeTextForPocketTTS(text) : text
-                    let sentences = self.detectSentences(input)
+                    let sentences = detectSentences(input)
                     self.logger.notice("Streaming \(sentences.count) sentence(s)")
                     for sentence in sentences {
                         do {
@@ -83,28 +82,12 @@ final class FluidTTSService: TTSService, @unchecked Sendable {
 
     // MARK: - Private
 
-    // Detect sentence boundaries with NLTokenizer and ensure each sentence
-    // ends with terminal punctuation.  Re-joining produces text that PocketTTS
-    // will chunk at "." / "!" / "?" instead of at arbitrary word boundaries.
+    // Detect sentence boundaries with NLTokenizer (via the shared free function)
+    // and ensure each sentence ends with terminal punctuation.  Re-joining produces
+    // text that PocketTTS will chunk at "." / "!" / "?" instead of at arbitrary
+    // word boundaries.
     private func ensureSentencePunctuation(_ text: String) -> String {
         detectSentences(text).joined(separator: " ")
-    }
-
-    // Split text into sentences, adding a trailing "." where terminal
-    // punctuation is absent so that each piece is a self-contained unit.
-    private func detectSentences(_ text: String) -> [String] {
-        let tokenizer = NLTokenizer(unit: .sentence)
-        tokenizer.string = text
-
-        var sentences: [String] = []
-        tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
-            var s = String(text[range]).trimmingCharacters(in: .whitespaces)
-            guard !s.isEmpty else { return true }
-            if let last = s.last, !".!?".contains(last) { s += "." }
-            sentences.append(s)
-            return true
-        }
-        return sentences.isEmpty ? [text] : sentences
     }
 
     // Convert float32 samples to 16-bit PCM using per-batch peak normalisation.

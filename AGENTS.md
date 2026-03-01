@@ -129,11 +129,11 @@ Use `source: .system` for file/API transcription, `source: .microphone` for live
 `FluidTTSService` wraps FluidAudio's `PocketTtsManager`:
 
 1. On init: downloads PocketTTS models (slow on first run, cached after).
-2. On synthesize (`synthesize`): pre-processes text with `NLTokenizer` (`.sentence` unit) to
-   ensure every sentence ends with `.!?`, then passes the result to a **single**
-   `manager.synthesize()` call. The library chunks at sentence boundaries (preferred over word
-   boundaries), and Mimi state stays continuous across all chunks for seamless audio.
-3. On streaming (`synthesizeStream`): splits text into sentences with `NLTokenizer`, calls
+2. On synthesize (`synthesize`): pre-processes text via the shared `detectSentences()` free function
+   (see `SentenceDetection.swift`) to ensure every sentence ends with `.!?`, then passes the result
+   to a **single** `manager.synthesize()` call. The library chunks at sentence boundaries (preferred
+   over word boundaries), and Mimi state stays continuous across all chunks for seamless audio.
+3. On streaming (`synthesizeStream`): splits text into sentences with `detectSentences()`, calls
    `manager.synthesizeDetailed()` once per sentence, yields raw 16-bit PCM chunks (no WAV
    header). Mimi state resets between sentences, which is imperceptible at natural breaks.
 4. Must call `initialize()` before first use -- will throw `FluidTTSError.notInitialized` otherwise.
@@ -179,6 +179,10 @@ Example: `{"type":"audio-chunk","version":"1.0.0","data_length":36,"payload_leng
 **Session state machine**:
 ```
 idle ──synthesize──→ [call TTSService.synthesizeStream, send audio-start/chunk/stop] ──→ idle
+idle ──synthesize-start──→ streamingSynthesize(voice, "")
+streamingSynthesize ──synthesize-chunk──→ [splitCompleteSentences, send audio per sentence] ──→ streamingSynthesize(voice, remainder)
+streamingSynthesize ──synthesize──→ [ignored, backward compat] (state unchanged)
+streamingSynthesize ──synthesize-stop──→ [synthesize remaining buffer, send audio + synthesize-stopped] ──→ idle
 idle ──transcribe──→ awaitingAudio
 awaitingAudio ──audio-start──→ recording(WAVWriter)
 recording ──audio-chunk──→ recording (append PCM)
@@ -186,7 +190,7 @@ recording ──audio-stop──→ [call STTService.transcribe, send transcript
 any state ──describe──→ [send info with both asr + tts capabilities] (state unchanged)
 ```
 
-The `info` response advertises both `asr` and `tts` arrays so Home Assistant knows this single port handles both services.
+The `info` response advertises both `asr` and `tts` arrays so Home Assistant knows this single port handles both services. The TTS program includes `supports_synthesize_streaming: true` to advertise HA 2025.07+ streaming support.
 
 **Streaming TTS**: `handle(event:)` returns `AsyncStream<Data>` (non-async). For `synthesize`, the stream yields `audio-start` + each `audio-chunk` + `audio-stop` incrementally as TTS chunks arrive — `audio-start` is withheld until the first chunk so a completely failed synthesis sends nothing. State mutations (e.g. `state = .awaitingAudio`) happen synchronously before the stream is returned, so callers can immediately make the next `handle` call without draining the stream first. All other event types pre-fill the stream synchronously and finish immediately.
 
@@ -204,7 +208,8 @@ wyoming:
 | `WyomingEventTests.swift` | serialize/deserialize, WyomingValue conversions, round-trip | No |
 | `WyomingFrameDecoderTests.swift` | Header-only, with data, with payload, partial feeds, multi-event, reset | No |
 | `WyomingWAVWriterTests.swift` | Valid WAV header bytes, multi-chunk, cleanup, custom sample rates | No |
-| `WyomingSessionTests.swift` | describe→info, synthesize→audio sequence, STT flow, errors, streaming order (mock services) | No |
+| `WyomingSessionTests.swift` | describe→info, synthesize→audio sequence, STT flow, errors, streaming order, streaming synthesis (mock services) | No |
+| `SentenceDetectionTests.swift` | `splitCompleteSentences` / `detectSentences` free functions | No |
 | `Helpers/MockServices.swift` | `MockTTSService` + `MockSTTService` for session tests | No |
 
 ### Error handling
@@ -259,6 +264,7 @@ swift test --filter ServerConfig  # run a specific test class
 | `WyomingFrameDecoderTests.swift` | Unit | Wyoming frame decoder — no models needed |
 | `WyomingWAVWriterTests.swift` | Unit | Wyoming WAV writer — no models needed |
 | `WyomingSessionTests.swift` | Unit | Wyoming session with mock services — no models needed |
+| `SentenceDetectionTests.swift` | Unit | `splitCompleteSentences` / `detectSentences` — no models needed |
 | `Helpers/MockServices.swift` | Helper | MockTTSService + MockSTTService |
 
 **First run**: integration tests load real FluidAudio models (STT + TTS). Model download takes several minutes; subsequent runs use the on-disk cache and start in seconds. The shared app singleton (`_appTask` in `TestApp.swift`) ensures models are initialized once per `swift test` invocation.
