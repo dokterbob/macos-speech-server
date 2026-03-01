@@ -114,6 +114,103 @@ final class TTSSanitizationTests: XCTestCase {
         XCTAssertEqual(sanitizeTextForPocketTTS("   \t\n  "), "")
     }
 
+    // MARK: - Text emoticon removal
+
+    func testSmileRemoved() {
+        XCTAssertEqual(sanitizeTextForPocketTTS("Great job :)"), "Great job")
+    }
+
+    func testSmileWithNoseRemoved() {
+        XCTAssertEqual(sanitizeTextForPocketTTS("Nice :-) work"), "Nice work")
+    }
+
+    func testFrownRemoved() {
+        XCTAssertEqual(sanitizeTextForPocketTTS("Too bad :("), "Too bad")
+    }
+
+    func testGrinRemoved() {
+        XCTAssertEqual(sanitizeTextForPocketTTS("Haha :D"), "Haha")
+    }
+
+    func testGrinWithNoseRemoved() {
+        XCTAssertEqual(sanitizeTextForPocketTTS("Haha :-D"), "Haha")
+    }
+
+    func testWinkRemoved() {
+        XCTAssertEqual(sanitizeTextForPocketTTS("Just kidding ;)"), "Just kidding")
+    }
+
+    func testTongueOutRemoved() {
+        XCTAssertEqual(sanitizeTextForPocketTTS("Silly :P"), "Silly")
+    }
+
+    func testXDRemoved() {
+        XCTAssertEqual(sanitizeTextForPocketTTS("That's funny XD"), "That's funny")
+    }
+
+    func testXdLowercaseRemoved() {
+        XCTAssertEqual(sanitizeTextForPocketTTS("lol xd"), "lol")
+    }
+
+    func testHeartRemoved() {
+        XCTAssertEqual(sanitizeTextForPocketTTS("I love it <3"), "I love it")
+    }
+
+    func testCaretFaceRemoved() {
+        XCTAssertEqual(sanitizeTextForPocketTTS("Yay ^_^"), "Yay")
+    }
+
+    func testEmoticonMidSentenceRemoved() {
+        XCTAssertEqual(sanitizeTextForPocketTTS("Hello :) world"), "Hello world")
+    }
+
+    // Emoticon-like sequences that must NOT be stripped
+
+    func testColonInURLNotRemoved() {
+        // Colon in a URL is preceded by a word character — lookbehind must protect it
+        XCTAssertEqual(sanitizeTextForPocketTTS("http://example.com"), "http://example.com")
+    }
+
+    func testParensInTextNotRemoved() {
+        // Parentheses not preceded by an emoticon eye character
+        XCTAssertEqual(sanitizeTextForPocketTTS("Item 1 (approx)."), "Item 1 (approx).")
+    }
+
+    func testColonFollowedByWordNotRemoved() {
+        // "Note:" — colon preceded by a word character, so not an emoticon eye
+        XCTAssertEqual(sanitizeTextForPocketTTS("Note: see below"), "Note: see below")
+    }
+
+    // MARK: - Space-before-punctuation normalisation
+
+    func testSpaceBeforePeriodFixed() {
+        XCTAssertEqual(sanitizeTextForPocketTTS("Hello ."), "Hello.")
+    }
+
+    func testSpaceBeforeCommaFixed() {
+        XCTAssertEqual(sanitizeTextForPocketTTS("Hello , world"), "Hello, world")
+    }
+
+    func testSpaceBeforeExclamationFixed() {
+        XCTAssertEqual(sanitizeTextForPocketTTS("Hello !"), "Hello!")
+    }
+
+    func testSpaceBeforeQuestionFixed() {
+        XCTAssertEqual(sanitizeTextForPocketTTS("Really ?"), "Really?")
+    }
+
+    func testMultipleSpacesBeforePunctuationFixed() {
+        XCTAssertEqual(sanitizeTextForPocketTTS("Hello   ."), "Hello.")
+    }
+
+    func testNormalPunctuationUnchanged() {
+        XCTAssertEqual(sanitizeTextForPocketTTS("Hello, world!"), "Hello, world!")
+    }
+
+    func testSpacedPunctuationMidSentenceFixed() {
+        XCTAssertEqual(sanitizeTextForPocketTTS("Wait , really ?"), "Wait, really?")
+    }
+
     // MARK: - ASCII emoji-capable characters are preserved
 
     func testAsteriskPreserved() {

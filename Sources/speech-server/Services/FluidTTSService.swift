@@ -104,33 +104,76 @@ final class FluidTTSService: TTSService, @unchecked Sendable {
 
 // MARK: - PocketTTS text sanitization
 
-// Strips emoji from `text` and collapses any whitespace runs left behind.
-// Package-internal so it can be tested directly without a live TTS service.
+// Sanitizes `text` for PocketTTS synthesis.  Package-internal so it can be
+// tested directly without a live TTS service.
 //
-// Filtered scalar categories:
-//   • isEmoji && value >= 0x231A — all pictographic emoji, including both
-//     emoji-presentation (e.g. 🎉 U+1F389) and text-default-presentation
-//     (e.g. ⚡ U+26A1, 🌩 U+1F329) variants.  U+231A (⌚ WATCH) is the
-//     first codepoint with Emoji_Presentation=Yes; using it as the lower
-//     bound keeps ASCII/Latin-1 emoji-capable characters (#, *, 0–9,
-//     ™ U+2122, ℹ U+2139, ↔ U+2194) intact.  Skin-tone modifiers
-//     (U+1F3FB–U+1F3FF) satisfy isEmoji && value >= 0x231A so no separate
-//     isEmojiModifier check is needed.
-//   • U+FE00–U+FE0F — variation selectors (force emoji vs text display)
-//   • U+E0000–U+E007F — tag characters used in regional-flag sequences
-//   • U+200D — zero-width joiner that stitches compound emoji
+// Applied in order:
+//
+// 1. Text emoticons — ASCII face patterns (`:)` `:-D` `XD` `<3` `^_^` …) that
+//    TTS vocalises as symbol noise.  Matched with word-boundary guards so that
+//    colons in URLs or parentheses in prose are left untouched.
+//
+// 2. Space-before-punctuation — LLM tokenisers commonly emit punctuation as a
+//    separate token with a leading space, producing "Hello ." instead of
+//    "Hello.".  The regex collapses any run of whitespace immediately before
+//    `.  ,  !  ?  ;  :` into nothing, so PocketTTS receives clean sentences.
+//
+// 3. Unicode emoji — all pictographic emoji and related invisible characters:
+//    • isEmoji && value >= 0x231A — emoji-presentation and text-default-
+//      presentation variants (⚡ U+26A1, 🌩 U+1F329 …).  U+231A (⌚ WATCH) is
+//      the first codepoint with Emoji_Presentation=Yes; the lower-bound keeps
+//      ASCII emoji-capable characters (#, *, 0–9, ™ U+2122 …) intact.
+//      Skin-tone modifiers (U+1F3FB–U+1F3FF) satisfy the condition, so no
+//      separate isEmojiModifier check is needed.
+//    • U+FE00–U+FE0F — variation selectors
+//    • U+E0000–U+E007F — tag characters used in regional-flag sequences
+//    • U+200D — zero-width joiner that stitches compound emoji
+//
+// 4. Whitespace — collapses every run of spaces/newlines to a single space and
+//    strips leading/trailing whitespace.
 func sanitizeTextForPocketTTS(_ text: String) -> String {
-    let filtered = text.unicodeScalars.filter { scalar in
+    // 1. Remove text emoticons (replace with space to avoid merging adjacent words)
+    let nsText = text as NSString
+    let range = NSRange(location: 0, length: nsText.length)
+    var step1 = _emoticonRegex.stringByReplacingMatches(in: text, range: range, withTemplate: " ")
+
+    // 2. Fix space-before-punctuation produced by LLM tokenisation
+    step1 = _spacedPunctRegex.stringByReplacingMatches(
+        in: step1, range: NSRange(location: 0, length: (step1 as NSString).length),
+        withTemplate: "$1"
+    )
+
+    // 3. Strip Unicode emoji and related invisible characters
+    let filtered = step1.unicodeScalars.filter { scalar in
         !(scalar.properties.isEmoji && scalar.value >= 0x231A)
         && !(scalar.value >= 0xFE00 && scalar.value <= 0xFE0F)
         && !(scalar.value >= 0xE0000 && scalar.value <= 0xE007F)
         && scalar.value != 0x200D
     }
+
+    // 4. Collapse whitespace runs (including any gaps left by the above steps)
     return String(String.UnicodeScalarView(filtered))
         .components(separatedBy: .whitespacesAndNewlines)
         .filter { !$0.isEmpty }
         .joined(separator: " ")
 }
+
+// Text emoticons: common Western face patterns anchored at word boundaries so
+// colons in URLs ("http:") and parentheses in prose ("(approx)") are ignored.
+//   Eyes:  [:;=]
+//   Nose:  optional ['o-]
+//   Mouth: [)(DdPp3oO]
+// Also: [xX][Dd] (XD), <3 (heart), ^[-_]?^ (caret faces)
+private let _emoticonRegex: NSRegularExpression = {
+    let pattern = #"(?<!\w)(?:[:;=]['o-]?[)(DdPp3oO]|[xX][Dd]|<3|\^[-_]?\^)(?!\w)"#
+    return try! NSRegularExpression(pattern: pattern)
+}()
+
+// One or more whitespace characters immediately before sentence punctuation.
+// Replacement template "$1" keeps the punctuation and discards the whitespace.
+private let _spacedPunctRegex: NSRegularExpression = {
+    return try! NSRegularExpression(pattern: #"\s+([.,!?;:])"#)
+}()
 
 enum FluidTTSError: Error, CustomStringConvertible {
     case notInitialized
