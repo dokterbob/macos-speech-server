@@ -210,10 +210,15 @@ The `info` response advertises both `asr` and `tts` arrays so Home Assistant kno
 **Config** (nested under `servers` in `speech-server.yaml`):
 ```yaml
 servers:
+  http:
+    host: 127.0.0.1   # default 127.0.0.1; override with HTTP_HOST env var or Vapor's --hostname flag
+    port: 8080        # default 8080; override with HTTP_PORT env var or Vapor's --port flag
   wyoming:
-    host: 127.0.0.1   # default 127.0.0.1; override with WYOMING_HOST env var
+    host: 127.0.0.1   # default 127.0.0.1; override with WYOMING_HOST env var (independent of http.host)
     port: 10300       # 0 = disabled; default 10300; override with WYOMING_PORT env var
 ```
+
+Both `http.host` and `wyoming.host` are independently configurable — they do not need to match.
 
 **Test files** (`Tests/speech-serverTests/`):
 

@@ -39,7 +39,7 @@ servers:
     port: 8080
     upload_limit_mb: 500
   wyoming:
-    host: 127.0.0.1       # should match http.host
+    host: 127.0.0.1       # can differ from http.host; set independently
     port: 10300           # TCP port for Wyoming protocol (Home Assistant). 0 = disabled.
 
 stt:
@@ -62,10 +62,20 @@ All fields are optional — omitted fields use the defaults shown above.
 ```bash
 # Use an explicit config file via env var
 SPEECH_SERVER_CONFIG=/etc/speech-server.yaml swift run speech-server
-
-# Vapor's --hostname and --port flags override config-file values
-swift run speech-server serve --hostname 192.168.1.50 --port 9090
 ```
+
+### Environment variable overrides
+
+Individual settings can also be overridden with environment variables:
+
+| Variable | Overrides | Example |
+|----------|-----------|---------|
+| `HTTP_HOST` | `servers.http.host` | `HTTP_HOST=192.168.1.50` |
+| `HTTP_PORT` | `servers.http.port` | `HTTP_PORT=9090` |
+| `WYOMING_HOST` | `servers.wyoming.host` | `WYOMING_HOST=192.168.1.50` |
+| `WYOMING_PORT` | `servers.wyoming.port` | `WYOMING_PORT=0` (disables Wyoming) |
+
+Vapor's `--hostname` and `--port` CLI flags also work and take highest priority for the HTTP server.
 
 ## API
 
@@ -155,14 +165,14 @@ The HTTP API is compatible with any app or library that supports a configurable 
 
 1. Open MacWhisper **Preferences**
 2. Go to the **Provider** tab and choose **Custom**
-3. Set the **API URL** to `http://<host>:8080/v1/audio/transcriptions`
+3. Set the **API URL** to `http://<host>:<port>/v1/audio/transcriptions` (default `localhost:8080`)
 4. Enter any string as the **API Key** (e.g. `local`)
 
 Audio is sent directly to the endpoint; transcription happens entirely on-device with no round-trip to the cloud.
 
 ### Other apps
 
-Any tool that supports a configurable OpenAI base URL should work out of the box: set the base URL to `http://<host>:8080` and use any string as the API key. This includes the official OpenAI Python and JavaScript SDKs, and similar tools.
+Any tool that supports a configurable OpenAI base URL should work out of the box: set the base URL to `http://<host>:<port>` (default `localhost:8080`) and use any string as the API key. This includes the official OpenAI Python and JavaScript SDKs, and similar tools.
 
 ## Accessing from other machines
 
@@ -212,7 +222,7 @@ A single TCP port (default `10300`) handles both STT and TTS -- Home Assistant d
 
 ### Network setup
 
-Home Assistant typically runs on a separate machine, so the Wyoming port must be reachable from it. See [Accessing from other machines](#accessing-from-other-machines) above for Tailscale and LAN options -- in either case, set `servers.http.host` and `servers.wyoming.host` to your Mac's specific IP so both ports are reachable from HA.
+Home Assistant typically runs on a separate machine, so the Wyoming port must be reachable from it. See [Accessing from other machines](#accessing-from-other-machines) above for Tailscale and LAN options -- in either case, set `servers.http.host` and `servers.wyoming.host` to your Mac's IP (or use the `HTTP_HOST` and `WYOMING_HOST` environment variables) so both ports are reachable from HA.
 
 ### Adding the Wyoming integration in Home Assistant
 
