@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.local.speech-server</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/bin/speech-server</string>
+    <string>serve</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__HOME__/.config/speech-server</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>SPEECH_SERVER_CONFIG</key>
+    <string>__HOME__/.config/speech-server/speech-server.yaml</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/speech-server/output.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/speech-server/error.log</string>
+</dict>
+</plist>

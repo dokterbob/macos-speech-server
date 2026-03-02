@@ -57,6 +57,125 @@ SPEECH_SERVER_CONFIG=/etc/speech-server.yaml swift run speech-server
 swift run speech-server serve --hostname 0.0.0.0 --port 9090
 ```
 
+## Deployment
+
+This project supports two launchd deployment models:
+
+| Model | Scope | Privileges | Persistence | Install script |
+|---|---|---|---|---|
+| LaunchDaemon | System-wide | `sudo` required | Starts at boot, survives logout | `deploy/install-daemon.sh` |
+| LaunchAgent | Per-user | No `sudo` | Starts at user login | `deploy/install-agent.sh` |
+
+### Option A: LaunchDaemon (persistent system service)
+
+Recommended when you want the server always available on the machine.
+
+1. Build and install:
+
+```bash
+sudo deploy/install-daemon.sh
+```
+
+2. Verify status:
+
+```bash
+sudo launchctl print system/com.local.speech-server
+```
+
+3. Watch logs:
+
+```bash
+sudo tail -f /var/log/speech-server/output.log /var/log/speech-server/error.log
+```
+
+What the installer does:
+- Creates dedicated service account `_speech-server`.
+- Installs binary to `/usr/local/bin/speech-server`.
+- Installs config to `/etc/speech-server/speech-server.yaml` (without overwriting existing config).
+- Installs LaunchDaemon plist to `/Library/LaunchDaemons/com.local.speech-server.plist`.
+- Optionally pre-populates FluidAudio cache from invoking user into the service account home.
+
+Useful daemon commands:
+
+```bash
+# Restart daemon after config changes
+sudo launchctl kickstart -k system/com.local.speech-server
+
+# Stop daemon
+sudo launchctl bootout system/com.local.speech-server
+
+# Start daemon again
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.local.speech-server.plist
+sudo launchctl enable system/com.local.speech-server
+sudo launchctl kickstart -k system/com.local.speech-server
+```
+
+Uninstall daemon:
+
+```bash
+# Keep config/logs/service user
+sudo deploy/uninstall-daemon.sh
+
+# Remove everything including config/logs/model cache/service user
+sudo deploy/uninstall-daemon.sh --purge
+```
+
+### Option B: LaunchAgent (per-user service)
+
+Recommended when you want user-session startup with no system-wide changes.
+
+1. Build and install:
+
+```bash
+deploy/install-agent.sh
+```
+
+2. Verify status:
+
+```bash
+launchctl print gui/$(id -u)/com.local.speech-server
+```
+
+3. Watch logs:
+
+```bash
+tail -f "$HOME/Library/Logs/speech-server/output.log" "$HOME/Library/Logs/speech-server/error.log"
+```
+
+Useful agent commands:
+
+```bash
+# Restart agent after config changes
+launchctl kickstart -k gui/$(id -u)/com.local.speech-server
+
+# Stop agent
+launchctl bootout gui/$(id -u)/com.local.speech-server
+
+# Start agent again
+launchctl bootstrap gui/$(id -u) "$HOME/Library/LaunchAgents/com.local.speech-server.plist"
+launchctl enable gui/$(id -u)/com.local.speech-server
+launchctl kickstart -k gui/$(id -u)/com.local.speech-server
+```
+
+Uninstall agent:
+
+```bash
+# Keep config/logs
+deploy/uninstall-agent.sh
+
+# Remove user config/logs too
+deploy/uninstall-agent.sh --purge
+```
+
+### Deployment files
+
+The `deploy/` directory contains ready-to-use templates and scripts:
+
+- `deploy/com.local.speech-server.plist` -- LaunchDaemon template
+- `deploy/com.local.speech-server.agent.plist` -- LaunchAgent template (`__HOME__` placeholders are replaced by installer)
+- `deploy/install-daemon.sh` and `deploy/uninstall-daemon.sh`
+- `deploy/install-agent.sh` and `deploy/uninstall-agent.sh`
+
 ## API
 
 All endpoints are available at both `/audio/*` and `/v1/audio/*` (OpenAI compatibility).
