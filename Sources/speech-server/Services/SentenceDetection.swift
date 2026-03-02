@@ -31,7 +31,8 @@ func splitCompleteSentences(_ text: String) -> (complete: [String], remainder: S
     if let lastChar = last.last, ".!?".contains(lastChar) {
         // Every sentence has terminal punctuation — all are complete
         return (sentences, "")
-    } else {
+    }
+    else {
         // Last sentence is an incomplete fragment
         return (Array(sentences.dropLast()), last)
     }

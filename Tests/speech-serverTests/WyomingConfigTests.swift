@@ -1,9 +1,9 @@
 import XCTest
 import Yams
+
 @testable import speech_server
 
 final class WyomingConfigTests: XCTestCase {
-
     func testDefaultWyomingPort() {
         let config = ServerConfig()
         XCTAssertEqual(config.wyoming.port, 10300)
@@ -11,18 +11,18 @@ final class WyomingConfigTests: XCTestCase {
 
     func testWyomingPortSet() throws {
         let yaml = """
-        wyoming:
-          port: 10500
-        """
+            wyoming:
+              port: 10500
+            """
         let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
         XCTAssertEqual(config.wyoming.port, 10500)
     }
 
     func testWyomingPortZeroDisabled() throws {
         let yaml = """
-        wyoming:
-          port: 0
-        """
+            wyoming:
+              port: 0
+            """
         let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
         XCTAssertEqual(config.wyoming.port, 0)
     }
@@ -41,16 +41,16 @@ final class WyomingConfigTests: XCTestCase {
 
     func testFullConfigIncludingWyoming() throws {
         let yaml = """
-        server:
-          host: "0.0.0.0"
-          port: 9090
-        wyoming:
-          port: 10300
-        stt:
-          engine: parakeet
-        tts:
-          engine: pocket_tts
-        """
+            server:
+              host: "0.0.0.0"
+              port: 9090
+            wyoming:
+              port: 10300
+            stt:
+              engine: parakeet
+            tts:
+              engine: pocket_tts
+            """
         let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
         XCTAssertEqual(config.server.host, "0.0.0.0")
         XCTAssertEqual(config.server.port, 9090)

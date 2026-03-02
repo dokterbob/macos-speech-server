@@ -1,8 +1,8 @@
 import XCTest
+
 @testable import speech_server
 
 final class WyomingFrameDecoderTests: XCTestCase {
-
     // Helper: build a wire frame from a WyomingEvent
     private func wire(_ event: WyomingEvent) -> Data { event.serialize() }
 
@@ -122,7 +122,8 @@ final class WyomingFrameDecoderTests: XCTestCase {
 
         // Feed first half
         let mid = combined.count / 2
-        let events1 = decoder.process(combined[combined.startIndex..<combined.index(combined.startIndex, offsetBy: mid)])
+        let events1 = decoder.process(
+            combined[combined.startIndex..<combined.index(combined.startIndex, offsetBy: mid)])
 
         // Feed second half
         let events2 = decoder.process(combined[combined.index(combined.startIndex, offsetBy: mid)...])

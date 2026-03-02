@@ -1,5 +1,6 @@
-import XCTest
 import XCTVapor
+import XCTest
+
 @testable import speech_server
 
 /// TTS → STT round-trip: synthesize text, then transcribe the resulting audio
@@ -8,7 +9,6 @@ import XCTVapor
 /// This exercises multi-sentence TTS chunking (PocketTTS sentence boundaries)
 /// and multi-segment STT (VAD splitting of longer audio).
 final class RoundTripIntegrationTests: XCTestCase {
-
     var app: Application!
     private let boundary = "RoundTripBoundary42"
 
@@ -21,7 +21,8 @@ final class RoundTripIntegrationTests: XCTestCase {
     // MARK: - Round-trip test
 
     func testRoundTripMultiSentence() async throws {
-        let originalText = "Hello world. The quick brown fox jumps over the lazy dog. This is a test of the speech pipeline."
+        let originalText =
+            "Hello world. The quick brown fox jumps over the lazy dog. This is a test of the speech pipeline."
 
         // Step 1: Synthesize via TTS → WAV bytes
         let bodyData = try JSONSerialization.data(withJSONObject: [
@@ -31,7 +32,8 @@ final class RoundTripIntegrationTests: XCTestCase {
         ])
 
         var wavData = Data()
-        try await app.test(.POST, "/audio/speech",
+        try await app.test(
+            .POST, "/audio/speech",
             beforeRequest: { req in
                 req.headers.replaceOrAdd(name: .contentType, value: "application/json")
                 req.body = ByteBuffer(data: bodyData)
@@ -41,8 +43,9 @@ final class RoundTripIntegrationTests: XCTestCase {
                 var body = res.body
                 let bytes = body.readBytes(length: body.readableBytes) ?? []
                 wavData = Data(bytes)
-                XCTAssertGreaterThan(wavData.count, 44,
-                                     "Synthesized audio must be larger than a WAV header")
+                XCTAssertGreaterThan(
+                    wavData.count, 44,
+                    "Synthesized audio must be larger than a WAV header")
             }
         )
 
@@ -57,7 +60,8 @@ final class RoundTripIntegrationTests: XCTestCase {
         headers.replaceOrAdd(name: .contentType, value: "multipart/form-data; boundary=\(boundary)")
 
         var transcribedText = ""
-        try await app.test(.POST, "/audio/transcriptions",
+        try await app.test(
+            .POST, "/audio/transcriptions",
             headers: headers,
             body: ByteBuffer(data: multipartBody)
         ) { res async throws in

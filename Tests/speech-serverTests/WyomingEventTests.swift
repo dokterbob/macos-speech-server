@@ -1,8 +1,8 @@
 import XCTest
+
 @testable import speech_server
 
 final class WyomingEventTests: XCTestCase {
-
     // MARK: - WyomingValue conversions
 
     func testStringValue() {
@@ -74,8 +74,8 @@ final class WyomingEventTests: XCTestCase {
 
     func testWyomingValueDecodeFromJSON() throws {
         let json = """
-        {"text":"hello","rate":16000,"active":true}
-        """.data(using: .utf8)!
+            {"text":"hello","rate":16000,"active":true}
+            """.data(using: .utf8)!
         let dict = try JSONDecoder().decode([String: WyomingValue].self, from: json)
         XCTAssertEqual(dict["text"]?.stringValue, "hello")
         XCTAssertEqual(dict["rate"]?.intValue, 16000)
@@ -84,8 +84,8 @@ final class WyomingEventTests: XCTestCase {
 
     func testWyomingValueDecodeNestedArray() throws {
         let json = """
-        {"items":["a","b"]}
-        """.data(using: .utf8)!
+            {"items":["a","b"]}
+            """.data(using: .utf8)!
         let dict = try JSONDecoder().decode([String: WyomingValue].self, from: json)
         let items = dict["items"]?.arrayValue
         XCTAssertEqual(items?.count, 2)
@@ -94,8 +94,8 @@ final class WyomingEventTests: XCTestCase {
 
     func testWyomingValueDecodeNestedObject() throws {
         let json = """
-        {"voice":{"name":"alba","language":"en"}}
-        """.data(using: .utf8)!
+            {"voice":{"name":"alba","language":"en"}}
+            """.data(using: .utf8)!
         let dict = try JSONDecoder().decode([String: WyomingValue].self, from: json)
         let voice = dict["voice"]?.objectValue
         XCTAssertEqual(voice?["name"]?.stringValue, "alba")

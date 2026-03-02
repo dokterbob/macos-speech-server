@@ -17,7 +17,7 @@ import NIOCore
 /// thread (`channelActive`, `channelRead`, `errorCaught`, `channelInactive`) — hence
 /// `@unchecked Sendable` is sound.
 final class WyomingChannelHandler: ChannelInboundHandler, @unchecked Sendable {
-    typealias InboundIn  = ByteBuffer
+    typealias InboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
 
     private var frameDecoder = WyomingFrameDecoder()

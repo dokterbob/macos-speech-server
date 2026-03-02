@@ -1,9 +1,9 @@
 import XCTest
 import Yams
+
 @testable import speech_server
 
 final class ServerConfigTests: XCTestCase {
-
     // MARK: - Default values
 
     func testDefaultConfig() {
@@ -25,32 +25,32 @@ final class ServerConfigTests: XCTestCase {
 
     func testPocketTtsSanitizeEmojiDisabled() throws {
         let yaml = """
-        tts:
-          engine: pocket_tts
-          pocket_tts:
-            sanitize_emoji: false
-        """
+            tts:
+              engine: pocket_tts
+              pocket_tts:
+                sanitize_emoji: false
+            """
         let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
         XCTAssertEqual(config.tts.pocketTts?.sanitizeEmoji, false)
     }
 
     func testPocketTtsSanitizeEmojiExplicitTrue() throws {
         let yaml = """
-        tts:
-          engine: pocket_tts
-          pocket_tts:
-            sanitize_emoji: true
-        """
+            tts:
+              engine: pocket_tts
+              pocket_tts:
+                sanitize_emoji: true
+            """
         let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
         XCTAssertEqual(config.tts.pocketTts?.sanitizeEmoji, true)
     }
 
     func testPocketTtsEmptyBlockGivesDefaultSanitizeEmoji() throws {
         let yaml = """
-        tts:
-          engine: pocket_tts
-          pocket_tts: {}
-        """
+            tts:
+              engine: pocket_tts
+              pocket_tts: {}
+            """
         let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
         XCTAssertEqual(config.tts.pocketTts?.sanitizeEmoji, true)
     }
@@ -65,18 +65,18 @@ final class ServerConfigTests: XCTestCase {
 
     func testFullYAMLRoundTrip() throws {
         let yaml = """
-        server:
-          host: "0.0.0.0"
-          port: 9090
-          log_level: debug
-          upload_limit_mb: 100
-        stt:
-          engine: parakeet
-          parakeet:
-            model_version: v2
-        tts:
-          engine: pocket_tts
-        """
+            server:
+              host: "0.0.0.0"
+              port: 9090
+              log_level: debug
+              upload_limit_mb: 100
+            stt:
+              engine: parakeet
+              parakeet:
+                model_version: v2
+            tts:
+              engine: pocket_tts
+            """
         let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
         XCTAssertEqual(config.server.host, "0.0.0.0")
         XCTAssertEqual(config.server.port, 9090)
@@ -100,21 +100,21 @@ final class ServerConfigTests: XCTestCase {
 
     func testParakeetV2ModelVersion() throws {
         let yaml = """
-        stt:
-          engine: parakeet
-          parakeet:
-            model_version: v2
-        """
+            stt:
+              engine: parakeet
+              parakeet:
+                model_version: v2
+            """
         let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
         XCTAssertEqual(config.stt.parakeet?.modelVersion, "v2")
     }
 
     func testDefaultModelVersionWhenParakeetBlockPresent() throws {
         let yaml = """
-        stt:
-          engine: parakeet
-          parakeet: {}
-        """
+            stt:
+              engine: parakeet
+              parakeet: {}
+            """
         let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
         XCTAssertEqual(config.stt.parakeet?.modelVersion, "v3")
     }
@@ -138,15 +138,15 @@ final class ServerConfigTests: XCTestCase {
 
     func testServerSubsectionOnly() throws {
         let yaml = """
-        server:
-          port: 1234
-          host: "0.0.0.0"
-        """
+            server:
+              port: 1234
+              host: "0.0.0.0"
+            """
         let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
         XCTAssertEqual(config.server.port, 1234)
         XCTAssertEqual(config.server.host, "0.0.0.0")
-        XCTAssertEqual(config.server.logLevel, "notice")     // default
-        XCTAssertEqual(config.server.uploadLimitMB, 500)     // default
-        XCTAssertEqual(config.stt.engine, .parakeet)         // default
+        XCTAssertEqual(config.server.logLevel, "notice")  // default
+        XCTAssertEqual(config.server.uploadLimitMB, 500)  // default
+        XCTAssertEqual(config.stt.engine, .parakeet)  // default
     }
 }

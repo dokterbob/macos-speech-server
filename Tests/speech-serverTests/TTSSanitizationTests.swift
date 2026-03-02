@@ -1,8 +1,8 @@
 import XCTest
+
 @testable import speech_server
 
 final class TTSSanitizationTests: XCTestCase {
-
     // MARK: - Plain text pass-through
 
     func testPlainTextUnchanged() {

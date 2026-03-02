@@ -34,7 +34,8 @@ final class FluidTTSService: TTSService, @unchecked Sendable {
             let audioData = try await manager.synthesize(text: preprocessed, voice: voice)
             logger.notice("Synthesis done: \(audioData.count) bytes")
             return audioData
-        } catch let loadError as PocketTtsConstantsLoader.LoadError {
+        }
+        catch let loadError as PocketTtsConstantsLoader.LoadError {
             switch loadError {
             case .fileNotFound(let name) where name.hasSuffix("_audio_prompt"):
                 throw FluidTTSError.voiceNotFound(voice)
@@ -63,7 +64,8 @@ final class FluidTTSService: TTSService, @unchecked Sendable {
                             let result = try await manager.synthesizeDetailed(
                                 text: sentence, voice: voice)
                             continuation.yield(Self.samplesToPCM(result.samples))
-                        } catch let loadError as PocketTtsConstantsLoader.LoadError {
+                        }
+                        catch let loadError as PocketTtsConstantsLoader.LoadError {
                             switch loadError {
                             case .fileNotFound(let name) where name.hasSuffix("_audio_prompt"):
                                 throw FluidTTSError.voiceNotFound(voice)
@@ -73,7 +75,8 @@ final class FluidTTSService: TTSService, @unchecked Sendable {
                         }
                     }
                     continuation.finish()
-                } catch {
+                }
+                catch {
                     continuation.finish(throwing: error)
                 }
             }
@@ -146,9 +149,9 @@ func sanitizeTextForPocketTTS(_ text: String) -> String {
     // 3. Strip Unicode emoji and related invisible characters
     let filtered = step1.unicodeScalars.filter { scalar in
         !(scalar.properties.isEmoji && scalar.value >= 0x231A)
-        && !(scalar.value >= 0xFE00 && scalar.value <= 0xFE0F)
-        && !(scalar.value >= 0xE0000 && scalar.value <= 0xE007F)
-        && scalar.value != 0x200D
+            && !(scalar.value >= 0xFE00 && scalar.value <= 0xFE0F)
+            && !(scalar.value >= 0xE0000 && scalar.value <= 0xE007F)
+            && scalar.value != 0x200D
     }
 
     // 4. Collapse whitespace runs (including any gaps left by the above steps)
@@ -172,7 +175,7 @@ private let _emoticonRegex: NSRegularExpression = {
 // One or more whitespace characters immediately before sentence punctuation.
 // Replacement template "$1" keeps the punctuation and discards the whitespace.
 private let _spacedPunctRegex: NSRegularExpression = {
-    return try! NSRegularExpression(pattern: #"\s+([.,!?;:])"#)
+    try! NSRegularExpression(pattern: #"\s+([.,!?;:])"#)
 }()
 
 enum FluidTTSError: Error, CustomStringConvertible {

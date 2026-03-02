@@ -1,5 +1,5 @@
-import Vapor
 import FluidAudio
+import Vapor
 
 func configure(_ app: Application) async throws {
     let config = try ServerConfig.load()
@@ -8,14 +8,15 @@ func configure(_ app: Application) async throws {
     // Apply log level from config
     if let level = Logger.Level(string: config.server.logLevel) {
         app.logger.logLevel = level
-    } else {
+    }
+    else {
         app.logger.logLevel = .notice
         app.logger.warning("Unknown log_level '\(config.server.logLevel)'; defaulting to 'notice'.")
     }
 
     // Apply host/port (Vapor's --hostname/--port CLI args override these after configure())
     app.http.server.configuration.hostname = config.server.host
-    app.http.server.configuration.port     = config.server.port
+    app.http.server.configuration.port = config.server.port
 
     app.middleware = Middlewares()
     app.middleware.use(RequestLoggingMiddleware())
@@ -36,11 +37,15 @@ func configure(_ app: Application) async throws {
     case .parakeet:
         let sttService = FluidSTTService()
         let modelVersionStr = config.stt.parakeet?.modelVersion ?? "v3"
-        let modelVersion: AsrModelVersion = switch modelVersionStr {
-        case "v2": .v2
-        case "v3": .v3
-        default: throw Abort(.internalServerError, reason: "Unknown STT model_version '\(modelVersionStr)'; valid values are 'v2' and 'v3'.")
-        }
+        let modelVersion: AsrModelVersion =
+            switch modelVersionStr {
+            case "v2": .v2
+            case "v3": .v3
+            default:
+                throw Abort(
+                    .internalServerError,
+                    reason: "Unknown STT model_version '\(modelVersionStr)'; valid values are 'v2' and 'v3'.")
+            }
         app.logger.info("Loading ASR models (Parakeet \(modelVersionStr), first run will download ~minutes)...")
         try await sttService.initialize(modelVersion: modelVersion)
         app.sttService = sttService
@@ -51,7 +56,8 @@ func configure(_ app: Application) async throws {
     let wyomingPort: Int
     if let envPort = ProcessInfo.processInfo.environment["WYOMING_PORT"], let parsed = Int(envPort) {
         wyomingPort = parsed
-    } else {
+    }
+    else {
         wyomingPort = config.wyoming.port
     }
     if wyomingPort > 0 {
@@ -63,7 +69,8 @@ func configure(_ app: Application) async throws {
             logger: app.logger
         )
         app.lifecycle.use(wyomingServer)
-        app.logger.notice("Wyoming server registered on \(config.server.host):\(wyomingPort) (starts after service init).")
+        app.logger.notice(
+            "Wyoming server registered on \(config.server.host):\(wyomingPort) (starts after service init).")
     }
 
     try routes(app)
@@ -74,14 +81,14 @@ func configure(_ app: Application) async throws {
 extension Logger.Level {
     init?(string: String) {
         switch string.lowercased() {
-        case "trace":    self = .trace
-        case "debug":    self = .debug
-        case "info":     self = .info
-        case "notice":   self = .notice
-        case "warning":  self = .warning
-        case "error":    self = .error
+        case "trace": self = .trace
+        case "debug": self = .debug
+        case "info": self = .info
+        case "notice": self = .notice
+        case "warning": self = .warning
+        case "error": self = .error
         case "critical": self = .critical
-        default:         return nil
+        default: return nil
         }
     }
 }

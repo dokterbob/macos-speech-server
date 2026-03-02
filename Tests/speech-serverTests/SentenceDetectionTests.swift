@@ -1,8 +1,8 @@
 import XCTest
+
 @testable import speech_server
 
 final class SentenceDetectionTests: XCTestCase {
-
     // MARK: - detectSentences
 
     func testDetectSentencesBasic() {

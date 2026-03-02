@@ -159,8 +159,10 @@ actor WyomingSession {
     private func resolveVoice(from event: WyomingEvent) -> String {
         if let voiceStr = event.data["voice"]?.stringValue {
             return voiceStr
-        } else if case .object(let voiceObj) = event.data["voice"],
-                  let voiceName = voiceObj["name"]?.stringValue {
+        }
+        else if case .object(let voiceObj) = event.data["voice"],
+            let voiceName = voiceObj["name"]?.stringValue
+        {
             return voiceName
         }
         return "alba"
@@ -215,7 +217,7 @@ actor WyomingSession {
                         data: [
                             "rate": .int(rate),
                             "width": .int(width),
-                            "channels": .int(channels)
+                            "channels": .int(channels),
                         ]
                     )
                     continuation.yield(audioStart.serialize())
@@ -225,7 +227,7 @@ actor WyomingSession {
                     data: [
                         "rate": .int(rate),
                         "width": .int(width),
-                        "channels": .int(channels)
+                        "channels": .int(channels),
                     ],
                     payload: chunk
                 )
@@ -237,7 +239,8 @@ actor WyomingSession {
                 continuation.yield(WyomingEvent(type: "audio-stop").serialize())
             }
             logger.notice("Wyoming: synthesize complete, \(chunkCount) chunk(s)")
-        } catch {
+        }
+        catch {
             logger.error("TTS error during synthesize: \(error)")
             // If synthesis failed mid-stream, close the open audio sequence.
             if chunkCount > 0 {
@@ -252,7 +255,9 @@ actor WyomingSession {
     /// Errors from individual sentences are logged and skipped; remaining sentences
     /// continue to be synthesized. This is used by both synthesize-chunk (for
     /// detected complete sentences) and synthesize-stop (for the remaining buffer).
-    private func streamSentences(_ sentences: [String], voice: String, continuation: AsyncStream<Data>.Continuation) async {
+    private func streamSentences(
+        _ sentences: [String], voice: String, continuation: AsyncStream<Data>.Continuation
+    ) async {
         let rate = 24000
         let width = 2
         let channels = 1
@@ -262,30 +267,33 @@ actor WyomingSession {
             do {
                 for try await chunk in ttsService.synthesizeStream(text: sentence, voice: voice) {
                     if chunkCount == 0 {
-                        continuation.yield(WyomingEvent(
-                            type: "audio-start",
+                        continuation.yield(
+                            WyomingEvent(
+                                type: "audio-start",
+                                data: [
+                                    "rate": .int(rate),
+                                    "width": .int(width),
+                                    "channels": .int(channels),
+                                ]
+                            ).serialize())
+                    }
+                    continuation.yield(
+                        WyomingEvent(
+                            type: "audio-chunk",
                             data: [
                                 "rate": .int(rate),
                                 "width": .int(width),
-                                "channels": .int(channels)
-                            ]
+                                "channels": .int(channels),
+                            ],
+                            payload: chunk
                         ).serialize())
-                    }
-                    continuation.yield(WyomingEvent(
-                        type: "audio-chunk",
-                        data: [
-                            "rate": .int(rate),
-                            "width": .int(width),
-                            "channels": .int(channels)
-                        ],
-                        payload: chunk
-                    ).serialize())
                     chunkCount += 1
                 }
                 if chunkCount > 0 {
                     continuation.yield(WyomingEvent(type: "audio-stop").serialize())
                 }
-            } catch {
+            }
+            catch {
                 logger.error("TTS error for sentence '\(sentence.prefix(60))': \(error)")
                 if chunkCount > 0 {
                     continuation.yield(WyomingEvent(type: "audio-stop").serialize())
@@ -307,7 +315,8 @@ actor WyomingSession {
                 data: ["text": .string(result.text)]
             )
             continuation.yield(transcript.serialize())
-        } catch {
+        }
+        catch {
             logger.error("STT error during audio-stop: \(error)")
         }
     }
@@ -317,7 +326,7 @@ actor WyomingSession {
     private func makeInfoEvent() -> WyomingEvent {
         let attribution = WyomingValue.object([
             "name": .string("FluidAudio"),
-            "url": .string("https://github.com/FluidInference/FluidAudio")
+            "url": .string("https://github.com/FluidInference/FluidAudio"),
         ])
 
         // Two-level ASR hierarchy: AsrProgram → models: [AsrModel]
@@ -328,7 +337,7 @@ actor WyomingSession {
             "attribution": attribution,
             "installed": .bool(true),
             "version": .string("1.0.0"),
-            "languages": .array([.string("en")])
+            "languages": .array([.string("en")]),
         ])
 
         let asrProgram = WyomingValue.object([
@@ -337,7 +346,7 @@ actor WyomingSession {
             "attribution": attribution,
             "installed": .bool(true),
             "version": .string("1.0.0"),
-            "models": .array([asrModel])
+            "models": .array([asrModel]),
         ])
 
         // Two-level TTS hierarchy: TtsProgram → voices: [TtsVoice]
@@ -348,7 +357,7 @@ actor WyomingSession {
             "attribution": attribution,
             "installed": .bool(true),
             "version": .string("1.0.0"),
-            "languages": .array([.string("en")])
+            "languages": .array([.string("en")]),
         ])
 
         let ttsProgram = WyomingValue.object([
@@ -358,7 +367,7 @@ actor WyomingSession {
             "installed": .bool(true),
             "version": .string("1.0.0"),
             "voices": .array([ttsVoice]),
-            "supports_synthesize_streaming": .bool(true)
+            "supports_synthesize_streaming": .bool(true),
         ])
 
         return WyomingEvent(
@@ -370,7 +379,7 @@ actor WyomingSession {
                 "intent": .array([]),
                 "wake": .array([]),
                 "mic": .array([]),
-                "snd": .array([])
+                "snd": .array([]),
             ]
         )
     }

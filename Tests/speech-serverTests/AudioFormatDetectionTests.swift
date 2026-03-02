@@ -1,8 +1,8 @@
 import XCTest
+
 @testable import speech_server
 
 final class AudioFormatDetectionTests: XCTestCase {
-
     // MARK: - Filename-based detection
 
     func testWAVFilenameExtension() {

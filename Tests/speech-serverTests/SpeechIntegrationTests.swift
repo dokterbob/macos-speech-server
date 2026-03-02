@@ -1,9 +1,9 @@
-import XCTest
 import XCTVapor
+import XCTest
+
 @testable import speech_server
 
 final class SpeechIntegrationTests: XCTestCase {
-
     var app: Application!
 
     override func setUp() async throws {
@@ -28,7 +28,8 @@ final class SpeechIntegrationTests: XCTestCase {
 
         let bodyData = try JSONSerialization.data(withJSONObject: bodyDict)
 
-        try await app.test(.POST, "/audio/speech",
+        try await app.test(
+            .POST, "/audio/speech",
             beforeRequest: { req in
                 req.headers.replaceOrAdd(name: .contentType, value: "application/json")
                 req.body = ByteBuffer(data: bodyData)
@@ -64,7 +65,8 @@ final class SpeechIntegrationTests: XCTestCase {
 
     func testV1RouteWorks() async throws {
         let bodyData = try JSONSerialization.data(withJSONObject: ["model": "tts-1", "input": "Hi there."])
-        try await app.test(.POST, "/v1/audio/speech",
+        try await app.test(
+            .POST, "/v1/audio/speech",
             beforeRequest: { req in
                 req.headers.replaceOrAdd(name: .contentType, value: "application/json")
                 req.body = ByteBuffer(data: bodyData)
@@ -123,8 +125,8 @@ final class SpeechIntegrationTests: XCTestCase {
             XCTAssertEqual(res.status, .badRequest)
             let errorResp = try res.content.decode(OpenAIErrorResponse.self)
             XCTAssertTrue(
-                errorResp.error.message.lowercased().contains("nova") ||
-                errorResp.error.message.lowercased().contains("voice"),
+                errorResp.error.message.lowercased().contains("nova")
+                    || errorResp.error.message.lowercased().contains("voice"),
                 "Error message should mention the invalid voice or 'voice' field"
             )
         }

@@ -40,8 +40,8 @@ struct WyomingWAVWriter {
 
         // fmt sub-chunk
         wav.append(contentsOf: "fmt ".utf8)
-        wav.appendUInt32LE(16)                          // sub-chunk size
-        wav.appendUInt16LE(1)                           // PCM audio format
+        wav.appendUInt32LE(16)  // sub-chunk size
+        wav.appendUInt16LE(1)  // PCM audio format
         wav.appendUInt16LE(UInt16(channels))
         wav.appendUInt32LE(UInt32(sampleRate))
         wav.appendUInt32LE(UInt32(byteRate))
@@ -69,13 +69,13 @@ struct WyomingWAVWriter {
 
 // MARK: - Data helpers
 
-private extension Data {
-    mutating func appendUInt16LE(_ value: UInt16) {
+extension Data {
+    fileprivate mutating func appendUInt16LE(_ value: UInt16) {
         var v = value.littleEndian
         Swift.withUnsafeBytes(of: &v) { self.append(contentsOf: $0) }
     }
 
-    mutating func appendUInt32LE(_ value: UInt32) {
+    fileprivate mutating func appendUInt32LE(_ value: UInt32) {
         var v = value.littleEndian
         Swift.withUnsafeBytes(of: &v) { self.append(contentsOf: $0) }
     }

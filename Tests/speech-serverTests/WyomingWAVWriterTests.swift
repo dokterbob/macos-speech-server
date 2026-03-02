@@ -1,8 +1,8 @@
 import XCTest
+
 @testable import speech_server
 
 final class WyomingWAVWriterTests: XCTestCase {
-
     // MARK: - WAV header structure
 
     func testWAVHeaderSignatures() {
@@ -105,7 +105,7 @@ final class WyomingWAVWriterTests: XCTestCase {
         XCTAssertFalse(writer.isEmpty)
 
         let wav = writer.makeWAV()
-        XCTAssertEqual(wav.count, 50) // 44 + 6
+        XCTAssertEqual(wav.count, 50)  // 44 + 6
         XCTAssertEqual(wav[44...], Data([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]))
     }
 
@@ -113,7 +113,7 @@ final class WyomingWAVWriterTests: XCTestCase {
         let writer = WyomingWAVWriter()
         XCTAssertEqual(writer.byteCount, 0)
         XCTAssertTrue(writer.isEmpty)
-        XCTAssertEqual(writer.makeWAV().count, 44) // header only
+        XCTAssertEqual(writer.makeWAV().count, 44)  // header only
     }
 
     // MARK: - Custom sample rates
@@ -124,7 +124,7 @@ final class WyomingWAVWriterTests: XCTestCase {
         let sampleRate = readUInt32LE(wav, offset: 24)
         XCTAssertEqual(sampleRate, 24000)
         let byteRate = readUInt32LE(wav, offset: 28)
-        XCTAssertEqual(byteRate, 48000) // 24000 * 1 * 16/8
+        XCTAssertEqual(byteRate, 48000)  // 24000 * 1 * 16/8
     }
 
     func testStereoConfiguration() {
@@ -133,9 +133,9 @@ final class WyomingWAVWriterTests: XCTestCase {
         let channels = readUInt16LE(wav, offset: 22)
         XCTAssertEqual(channels, 2)
         let byteRate = readUInt32LE(wav, offset: 28)
-        XCTAssertEqual(byteRate, 176400) // 44100 * 2 * 16/8
+        XCTAssertEqual(byteRate, 176400)  // 44100 * 2 * 16/8
         let blockAlign = readUInt16LE(wav, offset: 32)
-        XCTAssertEqual(blockAlign, 4) // 2 * 16/8
+        XCTAssertEqual(blockAlign, 4)  // 2 * 16/8
     }
 
     // MARK: - writeToTempFile

@@ -1,5 +1,6 @@
 import Foundation
 import XCTVapor
+
 @testable import speech_server
 
 // ---------------------------------------------------------------------------
@@ -52,8 +53,8 @@ func makeMultipartBody(
     return body
 }
 
-private extension String {
-    var utf8Data: Data { Data(utf8) }
+extension String {
+    fileprivate var utf8Data: Data { Data(utf8) }
 }
 
 // ---------------------------------------------------------------------------
@@ -64,10 +65,11 @@ private extension String {
 /// Returns a value in [0, 1]; 1.0 = identical word sets.
 func wordOverlapRatio(original: String, transcribed: String) -> Double {
     func words(_ s: String) -> Set<String> {
-        Set(s.lowercased()
-            .components(separatedBy: .whitespacesAndNewlines)
-            .map { $0.trimmingCharacters(in: .punctuationCharacters) }
-            .filter { !$0.isEmpty })
+        Set(
+            s.lowercased()
+                .components(separatedBy: .whitespacesAndNewlines)
+                .map { $0.trimmingCharacters(in: .punctuationCharacters) }
+                .filter { !$0.isEmpty })
     }
     let a = words(original)
     let b = words(transcribed)

@@ -41,14 +41,16 @@ struct WyomingFrameDecoder {
                     // Header-only event
                     results.append(WyomingEvent(type: header.type, version: header.version))
                     // state stays .readingHeader
-                } else if dataLen > 0 {
+                }
+                else if dataLen > 0 {
                     state = .readingData(
                         type: header.type,
                         version: header.version,
                         dataLength: dataLen,
                         payloadLength: payloadLen
                     )
-                } else {
+                }
+                else {
                     // No data but has payload
                     state = .readingPayload(
                         type: header.type,
@@ -60,8 +62,10 @@ struct WyomingFrameDecoder {
 
             case .readingData(let type, let version, let dataLength, let payloadLength):
                 guard buffer.count >= dataLength else { break outer }
-                let dataSection = Data(buffer[buffer.startIndex..<buffer.index(buffer.startIndex, offsetBy: dataLength)])
-                buffer = buffer.count > dataLength
+                let dataSection = Data(
+                    buffer[buffer.startIndex..<buffer.index(buffer.startIndex, offsetBy: dataLength)])
+                buffer =
+                    buffer.count > dataLength
                     ? Data(buffer[buffer.index(buffer.startIndex, offsetBy: dataLength)...])
                     : Data()
 
@@ -69,15 +73,18 @@ struct WyomingFrameDecoder {
 
                 if payloadLength > 0 {
                     state = .readingPayload(type: type, version: version, data: dataDict, payloadLength: payloadLength)
-                } else {
+                }
+                else {
                     results.append(WyomingEvent(type: type, version: version, data: dataDict))
                     state = .readingHeader
                 }
 
             case .readingPayload(let type, let version, let data, let payloadLength):
                 guard buffer.count >= payloadLength else { break outer }
-                let payloadData = Data(buffer[buffer.startIndex..<buffer.index(buffer.startIndex, offsetBy: payloadLength)])
-                buffer = buffer.count > payloadLength
+                let payloadData = Data(
+                    buffer[buffer.startIndex..<buffer.index(buffer.startIndex, offsetBy: payloadLength)])
+                buffer =
+                    buffer.count > payloadLength
                     ? Data(buffer[buffer.index(buffer.startIndex, offsetBy: payloadLength)...])
                     : Data()
 
@@ -106,8 +113,8 @@ struct WyomingFrameDecoder {
 
     private func parseHeader(_ data: Data) -> ParsedHeader? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = json["type"] as? String,
-              let version = json["version"] as? String
+            let type = json["type"] as? String,
+            let version = json["version"] as? String
         else { return nil }
 
         let dataLength = json["data_length"] as? Int ?? 0

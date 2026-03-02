@@ -11,18 +11,18 @@ struct ServerConfig: Codable, Sendable {
     var wyoming: WyomingConfig
 
     init() {
-        server  = ServerSettings()
-        stt     = STTConfig()
-        tts     = TTSConfig()
+        server = ServerSettings()
+        stt = STTConfig()
+        tts = TTSConfig()
         wyoming = WyomingConfig()
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        server  = try c.decodeIfPresent(ServerSettings.self, forKey: .server)  ?? ServerSettings()
-        stt     = try c.decodeIfPresent(STTConfig.self,      forKey: .stt)     ?? STTConfig()
-        tts     = try c.decodeIfPresent(TTSConfig.self,      forKey: .tts)     ?? TTSConfig()
-        wyoming = try c.decodeIfPresent(WyomingConfig.self,  forKey: .wyoming) ?? WyomingConfig()
+        server = try c.decodeIfPresent(ServerSettings.self, forKey: .server) ?? ServerSettings()
+        stt = try c.decodeIfPresent(STTConfig.self, forKey: .stt) ?? STTConfig()
+        tts = try c.decodeIfPresent(TTSConfig.self, forKey: .tts) ?? TTSConfig()
+        wyoming = try c.decodeIfPresent(WyomingConfig.self, forKey: .wyoming) ?? WyomingConfig()
     }
 
     static var `default`: ServerConfig { ServerConfig() }
@@ -66,16 +66,16 @@ struct ServerSettings: Codable, Sendable {
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        host          = try c.decodeIfPresent(String.self, forKey: .host)          ?? "127.0.0.1"
-        port          = try c.decodeIfPresent(Int.self,    forKey: .port)          ?? 8080
-        logLevel      = try c.decodeIfPresent(String.self, forKey: .logLevel)      ?? "notice"
-        uploadLimitMB = try c.decodeIfPresent(Int.self,    forKey: .uploadLimitMB) ?? 500
+        host = try c.decodeIfPresent(String.self, forKey: .host) ?? "127.0.0.1"
+        port = try c.decodeIfPresent(Int.self, forKey: .port) ?? 8080
+        logLevel = try c.decodeIfPresent(String.self, forKey: .logLevel) ?? "notice"
+        uploadLimitMB = try c.decodeIfPresent(Int.self, forKey: .uploadLimitMB) ?? 500
     }
 
     enum CodingKeys: String, CodingKey {
         case host
         case port
-        case logLevel      = "log_level"
+        case logLevel = "log_level"
         case uploadLimitMB = "upload_limit_mb"
     }
 }
@@ -87,13 +87,13 @@ struct STTConfig: Codable, Sendable {
     var parakeet: ParakeetSettings?
 
     init() {
-        engine   = .parakeet
+        engine = .parakeet
         parakeet = nil
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        engine   = try c.decodeIfPresent(STTEngine.self,        forKey: .engine)   ?? .parakeet
+        engine = try c.decodeIfPresent(STTEngine.self, forKey: .engine) ?? .parakeet
         parakeet = try c.decodeIfPresent(ParakeetSettings.self, forKey: .parakeet)
     }
 
@@ -131,13 +131,13 @@ struct TTSConfig: Codable, Sendable {
     var pocketTts: PocketTtsSettings?
 
     init() {
-        engine   = .pocketTts
+        engine = .pocketTts
         pocketTts = nil
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        engine   = try c.decodeIfPresent(TTSEngine.self,         forKey: .engine)    ?? .pocketTts
+        engine = try c.decodeIfPresent(TTSEngine.self, forKey: .engine) ?? .pocketTts
         pocketTts = try c.decodeIfPresent(PocketTtsSettings.self, forKey: .pocketTts)
     }
 
