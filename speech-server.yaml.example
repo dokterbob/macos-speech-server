@@ -12,12 +12,12 @@ log_level: notice     # trace | debug | info | notice | warning | error | critic
 
 servers:
   http:
-    host: 127.0.0.1       # Bind address. Use a LAN/Tailscale IP to accept connections from other devices.
-    port: 8080            # Listening port. Overridden by Vapor's --port CLI arg.
+    host: 127.0.0.1       # Bind address; override with HTTP_HOST env var or Vapor's --hostname flag.
+    port: 8080            # Listening port; override with HTTP_PORT env var or Vapor's --port flag.
     upload_limit_mb: 500  # Maximum multipart upload size for /audio/transcriptions
   wyoming:
-    host: 127.0.0.1       # Bind address for Wyoming TCP server (should match http.host).
-    port: 10300           # TCP port for Wyoming protocol (Home Assistant). 0 = disabled; default 10300.
+    host: 127.0.0.1       # Bind address for Wyoming TCP server; override with WYOMING_HOST env var.
+    port: 10300           # TCP port for Wyoming protocol (Home Assistant). 0 = disabled; override with WYOMING_PORT env var.
 
 stt:
   engine: parakeet      # Speech-to-text engine. Currently only: parakeet

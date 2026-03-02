@@ -14,9 +14,25 @@ func configure(_ app: Application) async throws {
         app.logger.warning("Unknown log_level '\(config.logLevel)'; defaulting to 'notice'.")
     }
 
-    // Apply host/port (Vapor's --hostname/--port CLI args override these after configure())
-    app.http.server.configuration.hostname = config.servers.http.host
-    app.http.server.configuration.port = config.servers.http.port
+    // Apply host/port from config, with env var and CLI overrides.
+    // Priority: HTTP_HOST/HTTP_PORT env vars > config file > built-in defaults.
+    // Vapor's --hostname/--port CLI args take highest priority and are applied after configure().
+    let httpHost: String
+    if let envHost = ProcessInfo.processInfo.environment["HTTP_HOST"] {
+        httpHost = envHost
+    }
+    else {
+        httpHost = config.servers.http.host
+    }
+    let httpPort: Int
+    if let envPort = ProcessInfo.processInfo.environment["HTTP_PORT"], let parsed = Int(envPort) {
+        httpPort = parsed
+    }
+    else {
+        httpPort = config.servers.http.port
+    }
+    app.http.server.configuration.hostname = httpHost
+    app.http.server.configuration.port = httpPort
 
     app.middleware = Middlewares()
     app.middleware.use(RequestLoggingMiddleware())
