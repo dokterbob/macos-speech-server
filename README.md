@@ -242,26 +242,6 @@ The integration must be added manually (zeroconf/auto-discovery is not supported
 
 Streaming TTS (lower latency, audio starts playing before synthesis is complete) is supported in Home Assistant 2025.07 and later.
 
-## Code formatting
-
-All Swift code is formatted with `swift format` (ships with Swift 6.2). A `.swift-format` config at the repo root sets 120-char line length and 4-space indentation.
-
-```bash
-# Format everything in-place
-swift format --in-place --recursive Sources/ Tests/
-
-# Check formatting without modifying files (exits non-zero if any file differs)
-swift format lint --strict --recursive Sources/ Tests/
-```
-
-A pre-commit hook that rejects unformatted commits is provided. Install it with:
-
-```bash
-scripts/install-hooks.sh
-```
-
-Formatting is also checked on every push and PR in CI via `.github/workflows/swift-format.yml`.
-
 ## Project structure
 
 ```
@@ -297,6 +277,12 @@ Sources/speech-server/
     WyomingSession.swift           # Session state machine (STT + TTS)
     WyomingWAVWriter.swift         # PCM-to-WAV for STT handoff
 ```
+
+## Contributing
+
+Contributions are welcome. All changes go through a pull request — see [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, code style, and PR guidelines.
+
+Swift code is formatted with `swift format` (ships with Swift 6.2). A pre-commit hook is provided; install it with `scripts/install-hooks.sh`.
 
 ## License
 
