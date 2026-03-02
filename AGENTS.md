@@ -227,6 +227,27 @@ All errors are caught by `OpenAIErrorMiddleware` and returned as:
 }
 ```
 
+## Code formatting
+
+All Swift code is formatted with `swift format` (bundled with Swift 6.2). Config is in `.swift-format` at the repo root (120-char line length, 4-space indent).
+
+```bash
+# Format everything in-place
+swift format --in-place --recursive Sources/ Tests/
+
+# Lint check (used by CI and the pre-commit hook)
+swift format lint --strict --recursive Sources/ Tests/
+```
+
+**Pre-commit hook**: `scripts/pre-commit` rejects commits with unformatted staged `.swift` files.
+Install with: `scripts/install-hooks.sh`
+
+**CI**: `.github/workflows/swift-format.yml` runs the lint check on every push and PR to `main`.
+
+**Important for agents**: always run `swift format --in-place --recursive Sources/ Tests/` before finishing any task that modifies Swift files. The CI check is strict and will fail the build if any file is not formatted.
+
+**Snake_case CodingKeys**: `SpeechRequest` and `TranscriptionSegment` use explicit `CodingKeys` to map camelCase Swift properties to snake_case JSON fields (e.g. `responseFormat` → `"response_format"`). Do not revert to bare snake_case property names — the `AlwaysUseLowerCamelCase` lint rule will reject them.
+
 ## Build and run
 
 ```bash
