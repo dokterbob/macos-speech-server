@@ -53,8 +53,21 @@ FluidAudio is a newer library with less community documentation. Use the DeepWik
 
 **Config discovery order** (first match wins):
 1. `SPEECH_SERVER_CONFIG` env var — path to a YAML file
-2. `./speech-server.yaml` in the current working directory
+2. `./speech-server.yaml` in the current working directory (gitignored — copy from `speech-server.yaml.example`)
 3. Built-in defaults (all fields have sensible defaults matching original hardcoded values)
+
+**Struct hierarchy**:
+```
+ServerConfig
+  ├─ logLevel: String              (top-level, CodingKey "log_level")
+  ├─ servers: ServersConfig
+  │   ├─ http: HTTPConfig          (host, port, uploadLimitMB)
+  │   └─ wyoming: WyomingConfig    (host, port)
+  ├─ stt: STTConfig                (engine, parakeet settings)
+  └─ tts: TTSConfig                (engine, pocket_tts settings)
+```
+
+Access: `config.logLevel`, `config.servers.http.host`, `config.servers.wyoming.port`.
 
 **Engine enums** are exhaustive by design. Adding a new engine requires:
 1. Add a `case` to `STTEngine` or `TTSEngine` (the raw value becomes the YAML key, e.g. `"parakeet"`)
@@ -194,10 +207,12 @@ The `info` response advertises both `asr` and `tts` arrays so Home Assistant kno
 
 **Streaming TTS**: `handle(event:)` returns `AsyncStream<Data>` (non-async). For `synthesize`, the stream yields `audio-start` + each `audio-chunk` + `audio-stop` incrementally as TTS chunks arrive — `audio-start` is withheld until the first chunk so a completely failed synthesis sends nothing. State mutations (e.g. `state = .awaitingAudio`) happen synchronously before the stream is returned, so callers can immediately make the next `handle` call without draining the stream first. All other event types pre-fill the stream synchronously and finish immediately.
 
-**Config** (`wyoming` section in `speech-server.yaml`):
+**Config** (nested under `servers` in `speech-server.yaml`):
 ```yaml
-wyoming:
-  port: 10300   # 0 = disabled; default 10300
+servers:
+  wyoming:
+    host: 127.0.0.1   # default 127.0.0.1; override with WYOMING_HOST env var
+    port: 10300       # 0 = disabled; default 10300; override with WYOMING_PORT env var
 ```
 
 **Test files** (`Tests/speech-serverTests/`):
@@ -306,7 +321,7 @@ swift test --filter ServerConfig  # run a specific test class
 
 - **Async middleware**: use `AsyncMiddleware` protocol (not the `EventLoopFuture`-based `Middleware`).
 - **Request body decoding**: The transcription endpoint uses `body: .stream` and manually streams to disk, then decodes with `FormDataDecoder` from MultipartKit. Other controllers use `req.content.decode()` for JSON.
-- **Upload limit**: enforced mid-stream in `TranscriptionController` using `req.application.serverConfig.server.uploadLimitMB` (default 500 MB); throws `413 Payload Too Large` before the full body is buffered. Not set via `app.routes.defaultMaxBodySize`.
+- **Upload limit**: enforced mid-stream in `TranscriptionController` using `req.application.serverConfig.servers.http.uploadLimitMB` (default 500 MB); throws `413 Payload Too Large` before the full body is buffered. Not set via `app.routes.defaultMaxBodySize`.
 - **Config**: `ServerConfig` is loaded in `configure()` from `SPEECH_SERVER_CONFIG` env var → `./speech-server.yaml` → built-in defaults. All engine-selection switches live in `configure.swift`; adding a new engine means adding a `case` there. Engine enum raw values match YAML keys (e.g. `parakeet`, `pocket_tts`).
 - **Logging**: use `request.logger` in request context, `app.logger` during setup. Log level is set to `.notice` in `configure.swift` to suppress Vapor's internal debug noise. All operational log calls (request details, transcription progress) use `.notice`; use `.warning` or above for anomalies. Services that need their own logger (e.g. `FluidSTTService`) create a `Logger(label:)` instance with `logLevel` set explicitly.
 - **STTService protocol**: `transcribe(audioURL: URL)` returns `TranscriptionResult` (with `text` and `duration`), not a plain `String`. The URL points to a temp file with the correct audio extension, created and cleaned up by the controller. The `verbose_json` response includes a `segments` array matching the OpenAI API shape.

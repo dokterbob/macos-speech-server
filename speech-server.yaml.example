@@ -4,12 +4,20 @@
 #   1. SPEECH_SERVER_CONFIG env var (path to this file)
 #   2. ./speech-server.yaml in the working directory (this file, if present)
 #   3. Built-in defaults
+#
+# speech-server.yaml is gitignored so local IPs stay out of version control.
+# Copy this file to speech-server.yaml and edit as needed.
 
-server:
-  host: 127.0.0.1       # Bind address. Use 0.0.0.0 to listen on all interfaces.
-  port: 8080            # Listening port. Overridden by Vapor's --port CLI arg.
-  log_level: notice     # trace | debug | info | notice | warning | error | critical
-  upload_limit_mb: 500  # Maximum multipart upload size for /audio/transcriptions
+log_level: notice     # trace | debug | info | notice | warning | error | critical
+
+servers:
+  http:
+    host: 127.0.0.1       # Bind address. Use a LAN/Tailscale IP to accept connections from other devices.
+    port: 8080            # Listening port. Overridden by Vapor's --port CLI arg.
+    upload_limit_mb: 500  # Maximum multipart upload size for /audio/transcriptions
+  wyoming:
+    host: 127.0.0.1       # Bind address for Wyoming TCP server (should match http.host).
+    port: 10300           # TCP port for Wyoming protocol (Home Assistant). 0 = disabled; default 10300.
 
 stt:
   engine: parakeet      # Speech-to-text engine. Currently only: parakeet
@@ -19,6 +27,3 @@ stt:
 
 tts:
   engine: pocket_tts    # Text-to-speech engine. Currently only: pocket_tts
-
-wyoming:
-  port: 10300           # TCP port for Wyoming protocol (Home Assistant). 0 = disabled; default 10300.

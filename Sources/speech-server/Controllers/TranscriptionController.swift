@@ -82,7 +82,7 @@ struct TranscriptionController: RouteCollection {
             state.currentFileName = nil
         }
 
-        let uploadLimitMB = req.application.serverConfig.server.uploadLimitMB
+        let uploadLimitMB = req.application.serverConfig.servers.http.uploadLimitMB
         let maxBodyBytes = uploadLimitMB * 1024 * 1024
         var totalBytes = 0
         do {

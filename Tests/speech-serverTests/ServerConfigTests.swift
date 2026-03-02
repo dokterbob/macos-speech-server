@@ -8,10 +8,10 @@ final class ServerConfigTests: XCTestCase {
 
     func testDefaultConfig() {
         let config = ServerConfig()
-        XCTAssertEqual(config.server.host, "127.0.0.1")
-        XCTAssertEqual(config.server.port, 8080)
-        XCTAssertEqual(config.server.logLevel, "notice")
-        XCTAssertEqual(config.server.uploadLimitMB, 500)
+        XCTAssertEqual(config.servers.http.host, "127.0.0.1")
+        XCTAssertEqual(config.servers.http.port, 8080)
+        XCTAssertEqual(config.logLevel, "notice")
+        XCTAssertEqual(config.servers.http.uploadLimitMB, 500)
         XCTAssertEqual(config.stt.engine, .parakeet)
         XCTAssertNil(config.stt.parakeet)
         XCTAssertEqual(config.tts.engine, .pocketTts)
@@ -65,11 +65,12 @@ final class ServerConfigTests: XCTestCase {
 
     func testFullYAMLRoundTrip() throws {
         let yaml = """
-            server:
-              host: "0.0.0.0"
-              port: 9090
-              log_level: debug
-              upload_limit_mb: 100
+            log_level: debug
+            servers:
+              http:
+                host: "0.0.0.0"
+                port: 9090
+                upload_limit_mb: 100
             stt:
               engine: parakeet
               parakeet:
@@ -78,10 +79,10 @@ final class ServerConfigTests: XCTestCase {
               engine: pocket_tts
             """
         let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
-        XCTAssertEqual(config.server.host, "0.0.0.0")
-        XCTAssertEqual(config.server.port, 9090)
-        XCTAssertEqual(config.server.logLevel, "debug")
-        XCTAssertEqual(config.server.uploadLimitMB, 100)
+        XCTAssertEqual(config.servers.http.host, "0.0.0.0")
+        XCTAssertEqual(config.servers.http.port, 9090)
+        XCTAssertEqual(config.logLevel, "debug")
+        XCTAssertEqual(config.servers.http.uploadLimitMB, 100)
         XCTAssertEqual(config.stt.engine, .parakeet)
         XCTAssertEqual(config.stt.parakeet?.modelVersion, "v2")
         XCTAssertEqual(config.tts.engine, .pocketTts)
@@ -92,9 +93,9 @@ final class ServerConfigTests: XCTestCase {
         let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
         XCTAssertEqual(config.stt.engine, .parakeet)
         // All other fields fall back to defaults
-        XCTAssertEqual(config.server.host, "127.0.0.1")
-        XCTAssertEqual(config.server.port, 8080)
-        XCTAssertEqual(config.server.uploadLimitMB, 500)
+        XCTAssertEqual(config.servers.http.host, "127.0.0.1")
+        XCTAssertEqual(config.servers.http.port, 8080)
+        XCTAssertEqual(config.servers.http.uploadLimitMB, 500)
         XCTAssertEqual(config.tts.engine, .pocketTts)
     }
 
@@ -128,25 +129,26 @@ final class ServerConfigTests: XCTestCase {
 
     func testEmptyYAMLProducesAllDefaults() throws {
         let config = try YAMLDecoder().decode(ServerConfig.self, from: "{}")
-        XCTAssertEqual(config.server.host, "127.0.0.1")
-        XCTAssertEqual(config.server.port, 8080)
-        XCTAssertEqual(config.server.logLevel, "notice")
-        XCTAssertEqual(config.server.uploadLimitMB, 500)
+        XCTAssertEqual(config.servers.http.host, "127.0.0.1")
+        XCTAssertEqual(config.servers.http.port, 8080)
+        XCTAssertEqual(config.logLevel, "notice")
+        XCTAssertEqual(config.servers.http.uploadLimitMB, 500)
         XCTAssertEqual(config.stt.engine, .parakeet)
         XCTAssertEqual(config.tts.engine, .pocketTts)
     }
 
-    func testServerSubsectionOnly() throws {
+    func testHTTPSubsectionOnly() throws {
         let yaml = """
-            server:
-              port: 1234
-              host: "0.0.0.0"
+            servers:
+              http:
+                port: 1234
+                host: "0.0.0.0"
             """
         let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
-        XCTAssertEqual(config.server.port, 1234)
-        XCTAssertEqual(config.server.host, "0.0.0.0")
-        XCTAssertEqual(config.server.logLevel, "notice")  // default
-        XCTAssertEqual(config.server.uploadLimitMB, 500)  // default
+        XCTAssertEqual(config.servers.http.port, 1234)
+        XCTAssertEqual(config.servers.http.host, "0.0.0.0")
+        XCTAssertEqual(config.logLevel, "notice")  // default
+        XCTAssertEqual(config.servers.http.uploadLimitMB, 500)  // default
         XCTAssertEqual(config.stt.engine, .parakeet)  // default
     }
 }

@@ -6,17 +6,17 @@ func configure(_ app: Application) async throws {
     app.serverConfig = config
 
     // Apply log level from config
-    if let level = Logger.Level(string: config.server.logLevel) {
+    if let level = Logger.Level(string: config.logLevel) {
         app.logger.logLevel = level
     }
     else {
         app.logger.logLevel = .notice
-        app.logger.warning("Unknown log_level '\(config.server.logLevel)'; defaulting to 'notice'.")
+        app.logger.warning("Unknown log_level '\(config.logLevel)'; defaulting to 'notice'.")
     }
 
     // Apply host/port (Vapor's --hostname/--port CLI args override these after configure())
-    app.http.server.configuration.hostname = config.server.host
-    app.http.server.configuration.port = config.server.port
+    app.http.server.configuration.hostname = config.servers.http.host
+    app.http.server.configuration.port = config.servers.http.port
 
     app.middleware = Middlewares()
     app.middleware.use(RequestLoggingMiddleware())
@@ -53,16 +53,23 @@ func configure(_ app: Application) async throws {
     }
 
     // Wyoming TCP server (default port 10300; set wyoming.port: 0 or WYOMING_PORT=0 to disable)
+    let wyomingHost: String
+    if let envHost = ProcessInfo.processInfo.environment["WYOMING_HOST"] {
+        wyomingHost = envHost
+    }
+    else {
+        wyomingHost = config.servers.wyoming.host
+    }
     let wyomingPort: Int
     if let envPort = ProcessInfo.processInfo.environment["WYOMING_PORT"], let parsed = Int(envPort) {
         wyomingPort = parsed
     }
     else {
-        wyomingPort = config.wyoming.port
+        wyomingPort = config.servers.wyoming.port
     }
     if wyomingPort > 0 {
         let wyomingServer = WyomingServer(
-            host: config.server.host,
+            host: wyomingHost,
             port: wyomingPort,
             ttsService: app.ttsService,
             sttService: app.sttService,
@@ -70,7 +77,7 @@ func configure(_ app: Application) async throws {
         )
         app.lifecycle.use(wyomingServer)
         app.logger.notice(
-            "Wyoming server registered on \(config.server.host):\(wyomingPort) (starts after service init).")
+            "Wyoming server registered on \(wyomingHost):\(wyomingPort) (starts after service init).")
     }
 
     try routes(app)

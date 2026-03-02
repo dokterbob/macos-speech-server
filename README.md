@@ -31,11 +31,16 @@ The server listens on `http://localhost:8080` by default. The Wyoming protocol s
 All server settings can be customised via a YAML config file. Create `speech-server.yaml` in the working directory (a fully-commented example is included in the repo):
 
 ```yaml
-server:
-  host: 127.0.0.1       # use your LAN or Tailscale IP to accept connections from other devices
-  port: 8080
-  log_level: notice     # trace | debug | info | notice | warning | error | critical
-  upload_limit_mb: 500
+log_level: notice     # trace | debug | info | notice | warning | error | critical
+
+servers:
+  http:
+    host: 127.0.0.1       # use your LAN or Tailscale IP to accept connections from other devices
+    port: 8080
+    upload_limit_mb: 500
+  wyoming:
+    host: 127.0.0.1       # should match http.host
+    port: 10300           # TCP port for Wyoming protocol (Home Assistant). 0 = disabled.
 
 stt:
   engine: parakeet      # Currently only: parakeet (NVIDIA Parakeet TDT via FluidAudio)
@@ -44,9 +49,6 @@ stt:
 
 tts:
   engine: pocket_tts
-
-wyoming:
-  port: 10300           # TCP port for Wyoming protocol (Home Assistant). 0 = disabled.
 ```
 
 All fields are optional — omitted fields use the defaults shown above.
@@ -177,10 +179,12 @@ By default the server binds to `127.0.0.1` and is only reachable locally. To ser
 3. Bind the server to that IP in `speech-server.yaml`:
 
 ```yaml
-server:
-  host: 100.x.y.z   # your Mac's Tailscale IP
-wyoming:
-  port: 10300
+servers:
+  http:
+    host: 100.x.y.z   # your Mac's Tailscale IP
+  wyoming:
+    host: 100.x.y.z   # your Mac's Tailscale IP
+    port: 10300
 ```
 
 4. Point your client at `http://100.x.y.z:8080` (HTTP API) or `100.x.y.z:10300` (Wyoming).
@@ -190,10 +194,12 @@ wyoming:
 Find your Mac's LAN IP in **System Settings > Network**, select your active connection (Wi-Fi or Ethernet), and note the IP address (e.g. `192.168.1.50`). Bind the server to that address:
 
 ```yaml
-server:
-  host: 192.168.1.50   # your Mac's LAN IP
-wyoming:
-  port: 10300
+servers:
+  http:
+    host: 192.168.1.50   # your Mac's LAN IP
+  wyoming:
+    host: 192.168.1.50   # your Mac's LAN IP
+    port: 10300
 ```
 
 Use that same IP in your client configuration. Note that LAN IPs can change when devices reconnect; consider assigning a DHCP reservation in your router, or use Tailscale for a stable address.
@@ -206,7 +212,7 @@ A single TCP port (default `10300`) handles both STT and TTS -- Home Assistant d
 
 ### Network setup
 
-Home Assistant typically runs on a separate machine, so the Wyoming port must be reachable from it. See [Accessing from other machines](#accessing-from-other-machines) above for Tailscale and LAN options -- in either case, set `server.host` to your Mac's specific IP so both the HTTP API and Wyoming ports are reachable from HA.
+Home Assistant typically runs on a separate machine, so the Wyoming port must be reachable from it. See [Accessing from other machines](#accessing-from-other-machines) above for Tailscale and LAN options -- in either case, set `servers.http.host` and `servers.wyoming.host` to your Mac's specific IP so both ports are reachable from HA.
 
 ### Adding the Wyoming integration in Home Assistant
 
@@ -249,7 +255,8 @@ Formatting is also checked on every push and PR in CI via `.github/workflows/swi
 ## Project structure
 
 ```
-speech-server.yaml                 # Example config (all defaults)
+speech-server.yaml.example         # Example config (all defaults); copy to speech-server.yaml to customise
+                                   # speech-server.yaml is gitignored (may contain private IPs)
 Sources/speech-server/
   Entrypoint.swift                 # Application entry point
   configure.swift                  # Middleware and service setup
