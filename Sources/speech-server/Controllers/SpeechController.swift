@@ -43,40 +43,45 @@ struct SpeechController: RouteCollection {
         if format == "wav" {
             response.headers.contentType = HTTPMediaType(type: "audio", subType: "wav")
             let header = Self.streamingWAVHeader()
-            response.body = .init(asyncStream: { writer in
-                do {
-                    var hBuf = allocator.buffer(capacity: header.count)
-                    hBuf.writeBytes(header)
-                    try await writer.writeBuffer(hBuf)
+            response.body = .init(
+                asyncStream: { writer in
+                    do {
+                        var hBuf = allocator.buffer(capacity: header.count)
+                        hBuf.writeBytes(header)
+                        try await writer.writeBuffer(hBuf)
 
-                    for try await chunk in ttsService.synthesizeStream(
-                        text: input, voice: voice)
-                    {
-                        var buf = allocator.buffer(capacity: chunk.count)
-                        buf.writeBytes(chunk)
-                        try await writer.writeBuffer(buf)
+                        for try await chunk in ttsService.synthesizeStream(
+                            text: input, voice: voice)
+                        {
+                            var buf = allocator.buffer(capacity: chunk.count)
+                            buf.writeBytes(chunk)
+                            try await writer.writeBuffer(buf)
+                        }
+                        try await writer.write(.end)
                     }
-                    try await writer.write(.end)
-                } catch {
-                    try? await writer.write(.error(error))
-                }
-            }, count: -1, byteBufferAllocator: allocator)
-        } else {
+                    catch {
+                        try? await writer.write(.error(error))
+                    }
+                }, count: -1, byteBufferAllocator: allocator)
+        }
+        else {
             response.headers.contentType = HTTPMediaType(type: "audio", subType: "pcm")
-            response.body = .init(asyncStream: { writer in
-                do {
-                    for try await chunk in ttsService.synthesizeStream(
-                        text: input, voice: voice)
-                    {
-                        var buf = allocator.buffer(capacity: chunk.count)
-                        buf.writeBytes(chunk)
-                        try await writer.writeBuffer(buf)
+            response.body = .init(
+                asyncStream: { writer in
+                    do {
+                        for try await chunk in ttsService.synthesizeStream(
+                            text: input, voice: voice)
+                        {
+                            var buf = allocator.buffer(capacity: chunk.count)
+                            buf.writeBytes(chunk)
+                            try await writer.writeBuffer(buf)
+                        }
+                        try await writer.write(.end)
                     }
-                    try await writer.write(.end)
-                } catch {
-                    try? await writer.write(.error(error))
-                }
-            }, count: -1, byteBufferAllocator: allocator)
+                    catch {
+                        try? await writer.write(.error(error))
+                    }
+                }, count: -1, byteBufferAllocator: allocator)
         }
 
         return response
@@ -97,18 +102,18 @@ struct SpeechController: RouteCollection {
             withUnsafeBytes(of: &le) { wav.append(contentsOf: $0) }
         }
         wav.append(contentsOf: "RIFF".utf8)
-        u32(0x7FFF_FFFF)                    // unknown file size
+        u32(0x7FFF_FFFF)  // unknown file size
         wav.append(contentsOf: "WAVE".utf8)
         wav.append(contentsOf: "fmt ".utf8)
-        u32(16)                             // PCM fmt chunk
-        u16(1)                              // PCM format
-        u16(1)                              // mono
+        u32(16)  // PCM fmt chunk
+        u16(1)  // PCM format
+        u16(1)  // mono
         u32(UInt32(sampleRate))
-        u32(UInt32(sampleRate * 2))         // byte rate (16-bit mono)
-        u16(2)                              // block align
-        u16(16)                             // bits per sample
+        u32(UInt32(sampleRate * 2))  // byte rate (16-bit mono)
+        u16(2)  // block align
+        u16(16)  // bits per sample
         wav.append(contentsOf: "data".utf8)
-        u32(0x7FFF_FFFF)                    // unknown data size
+        u32(0x7FFF_FFFF)  // unknown data size
         return wav
     }
 }

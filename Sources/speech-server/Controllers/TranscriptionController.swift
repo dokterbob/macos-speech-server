@@ -1,6 +1,6 @@
-import Vapor
 import MultipartKit
 import NIOCore
+import Vapor
 
 struct TranscriptionController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
@@ -53,12 +53,14 @@ struct TranscriptionController: RouteCollection {
                         base.assumingMemoryBound(to: UInt8.self), maxLength: ptr.count)
                     state.fileSize += ptr.count
                 }
-            } else {
+            }
+            else {
                 var mutable = bodyChunk
                 if var existing = state.fieldBuffers[fieldName] {
                     existing.writeBuffer(&mutable)
                     state.fieldBuffers[fieldName] = existing
-                } else {
+                }
+                else {
                     state.fieldBuffers[fieldName] = ByteBuffer(buffer: mutable)
                 }
             }
@@ -68,9 +70,11 @@ struct TranscriptionController: RouteCollection {
             if state.currentFieldName == "file" {
                 state.fileOutputStream?.close()
                 state.fileOutputStream = nil
-            } else if let fieldName = state.currentFieldName,
-                      var buf = state.fieldBuffers[fieldName],
-                      let value = buf.readString(length: buf.readableBytes) {
+            }
+            else if let fieldName = state.currentFieldName,
+                var buf = state.fieldBuffers[fieldName],
+                let value = buf.readString(length: buf.readableBytes)
+            {
                 state.fieldValues[fieldName, default: []].append(value)
                 state.fieldBuffers.removeValue(forKey: fieldName)
             }
@@ -78,7 +82,7 @@ struct TranscriptionController: RouteCollection {
             state.currentFileName = nil
         }
 
-        let uploadLimitMB = req.application.serverConfig.server.uploadLimitMB
+        let uploadLimitMB = req.application.serverConfig.servers.http.uploadLimitMB
         let maxBodyBytes = uploadLimitMB * 1024 * 1024
         var totalBytes = 0
         do {
@@ -90,7 +94,8 @@ struct TranscriptionController: RouteCollection {
                 }
                 try parser.execute(chunk)
             }
-        } catch {
+        }
+        catch {
             state.cleanup()
             throw error
         }
@@ -119,16 +124,21 @@ struct TranscriptionController: RouteCollection {
         let granularities: Set<String>
         if rawGranularities.isEmpty {
             granularities = ["segment"]
-        } else {
+        }
+        else {
             for value in rawGranularities {
                 guard value == "word" || value == "segment" else {
-                    throw Abort(.badRequest, reason: "Invalid timestamp_granularities value '\(value)'. Supported: word, segment.")
+                    throw Abort(
+                        .badRequest,
+                        reason: "Invalid timestamp_granularities value '\(value)'. Supported: word, segment.")
                 }
             }
             granularities = Set(rawGranularities)
         }
 
-        req.logger.notice("Transcription upload: filename=\(filename), size=\(state.fileSize) bytes, response_format=\(responseFormat)")
+        req.logger.notice(
+            "Transcription upload: filename=\(filename), size=\(state.fileSize) bytes, response_format=\(responseFormat)"
+        )
 
         let result = try await req.sttService.transcribe(audioURL: audioTempURL)
 
@@ -143,7 +153,8 @@ struct TranscriptionController: RouteCollection {
             response.headers.contentType = .plainText
             return response
         case "verbose_json":
-            let segments: [TranscriptionSegment]? = granularities.contains("segment")
+            let segments: [TranscriptionSegment]? =
+                granularities.contains("segment")
                 ? result.segments.enumerated().map { index, seg in
                     TranscriptionSegment(
                         id: index,
@@ -152,13 +163,14 @@ struct TranscriptionController: RouteCollection {
                         end: seg.end,
                         text: seg.text,
                         temperature: 0.0,
-                        avg_logprob: log(Double(max(seg.confidence, 1e-6))),
-                        compression_ratio: 1.0,
-                        no_speech_prob: 0.0
+                        avgLogprob: log(Double(max(seg.confidence, 1e-6))),
+                        compressionRatio: 1.0,
+                        noSpeechProb: 0.0
                     )
                 }
                 : nil
-            let words: [TranscriptionWord]? = granularities.contains("word")
+            let words: [TranscriptionWord]? =
+                granularities.contains("word")
                 ? result.words.map { TranscriptionWord(word: $0.word, start: $0.start, end: $0.end) }
                 : nil
             let verbose = TranscriptionResponseVerbose(
@@ -175,7 +187,9 @@ struct TranscriptionController: RouteCollection {
         case "srt", "vtt":
             throw Abort(.badRequest, reason: "response_format '\(responseFormat)' is not yet supported.")
         default:
-            throw Abort(.badRequest, reason: "Unknown response_format '\(responseFormat)'. Supported: json, text, verbose_json.")
+            throw Abort(
+                .badRequest, reason: "Unknown response_format '\(responseFormat)'. Supported: json, text, verbose_json."
+            )
         }
     }
 }
@@ -194,11 +208,11 @@ private final class MultipartParseState {
     var fileSize = 0
 
     func stringField(_ name: String) -> String? {
-        return fieldValues[name]?.last
+        fieldValues[name]?.last
     }
 
     func arrayField(_ name: String) -> [String] {
-        return fieldValues[name] ?? []
+        fieldValues[name] ?? []
     }
 
     func cleanup() {

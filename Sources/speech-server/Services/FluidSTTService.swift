@@ -1,5 +1,5 @@
-import Foundation
 import FluidAudio
+import Foundation
 import Logging
 
 final class FluidSTTService: STTService, @unchecked Sendable {
@@ -33,7 +33,8 @@ final class FluidSTTService: STTService, @unchecked Sendable {
                 from: audioURL, targetSampleRate: 16000
             )
             diskSource = source
-        } catch {
+        }
+        catch {
             throw FluidSTTError.audioConversionFailed(error)
         }
         defer { diskSource.cleanup() }
@@ -61,12 +62,13 @@ final class FluidSTTService: STTService, @unchecked Sendable {
                 vadChunk, state: vadStreamState
             )
             vadStreamState = streamResult.state
-            vadResults.append(VadResult(
-                probability: streamResult.probability,
-                isVoiceActive: streamResult.state.triggered,
-                processingTime: 0,
-                outputState: streamResult.state.modelState
-            ))
+            vadResults.append(
+                VadResult(
+                    probability: streamResult.probability,
+                    isVoiceActive: streamResult.state.triggered,
+                    processingTime: 0,
+                    outputState: streamResult.state.modelState
+                ))
         }
 
         let vadSegments = await vadManager.segmentSpeech(
@@ -99,13 +101,14 @@ final class FluidSTTService: STTService, @unchecked Sendable {
                 WordTiming(word: $0.word, start: ($0.start + segOffset).rounded3, end: ($0.end + segOffset).rounded3)
             }
 
-            segmentResults.append(SegmentResult(
-                text: result.text,
-                start: vadSeg.startTime.rounded3,
-                end: vadSeg.endTime.rounded3,
-                words: offsetWords,
-                confidence: result.confidence
-            ))
+            segmentResults.append(
+                SegmentResult(
+                    text: result.text,
+                    start: vadSeg.startTime.rounded3,
+                    end: vadSeg.endTime.rounded3,
+                    words: offsetWords,
+                    confidence: result.confidence
+                ))
         }
 
         let fullText = segmentResults.map { $0.text }.joined(separator: " ")
@@ -135,7 +138,8 @@ private func mergeTokensIntoWords(_ tokenTimings: [TokenTiming]) -> [WordTiming]
             currentWord = timing.token.trimmingCharacters(in: .whitespacesAndNewlines)
             currentStart = timing.startTime
             currentEnd = timing.endTime
-        } else {
+        }
+        else {
             if currentStart == nil { currentStart = timing.startTime }
             currentWord += timing.token
             currentEnd = timing.endTime
@@ -147,8 +151,8 @@ private func mergeTokensIntoWords(_ tokenTimings: [TokenTiming]) -> [WordTiming]
     return result
 }
 
-private extension Double {
-    var rounded3: Double { (self * 1000).rounded() / 1000 }
+extension Double {
+    fileprivate var rounded3: Double { (self * 1000).rounded() / 1000 }
 }
 
 enum FluidSTTError: Error, CustomStringConvertible {

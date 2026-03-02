@@ -5,21 +5,31 @@ import Yams
 // MARK: - Top-level config
 
 struct ServerConfig: Codable, Sendable {
-    var server: ServerSettings
+    var logLevel: String
+    var servers: ServersConfig
     var stt: STTConfig
     var tts: TTSConfig
 
     init() {
-        server = ServerSettings()
+        logLevel = "notice"
+        servers = ServersConfig()
         stt = STTConfig()
         tts = TTSConfig()
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        server = try c.decodeIfPresent(ServerSettings.self, forKey: .server) ?? ServerSettings()
-        stt    = try c.decodeIfPresent(STTConfig.self,      forKey: .stt)    ?? STTConfig()
-        tts    = try c.decodeIfPresent(TTSConfig.self,      forKey: .tts)    ?? TTSConfig()
+        logLevel = try c.decodeIfPresent(String.self, forKey: .logLevel) ?? "notice"
+        servers = try c.decodeIfPresent(ServersConfig.self, forKey: .servers) ?? ServersConfig()
+        stt = try c.decodeIfPresent(STTConfig.self, forKey: .stt) ?? STTConfig()
+        tts = try c.decodeIfPresent(TTSConfig.self, forKey: .tts) ?? TTSConfig()
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case logLevel = "log_level"
+        case servers
+        case stt
+        case tts
     }
 
     static var `default`: ServerConfig { ServerConfig() }
@@ -46,33 +56,52 @@ struct ServerConfig: Codable, Sendable {
     }
 }
 
-// MARK: - Server settings
+// MARK: - Servers wrapper
 
-struct ServerSettings: Codable, Sendable {
+struct ServersConfig: Codable, Sendable {
+    var http: HTTPConfig
+    var wyoming: WyomingConfig
+
+    init() {
+        http = HTTPConfig()
+        wyoming = WyomingConfig()
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        http = try c.decodeIfPresent(HTTPConfig.self, forKey: .http) ?? HTTPConfig()
+        wyoming = try c.decodeIfPresent(WyomingConfig.self, forKey: .wyoming) ?? WyomingConfig()
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case http
+        case wyoming
+    }
+}
+
+// MARK: - HTTP server settings
+
+struct HTTPConfig: Codable, Sendable {
     var host: String
     var port: Int
-    var logLevel: String
     var uploadLimitMB: Int
 
     init() {
         host = "127.0.0.1"
         port = 8080
-        logLevel = "notice"
         uploadLimitMB = 500
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        host          = try c.decodeIfPresent(String.self, forKey: .host)          ?? "127.0.0.1"
-        port          = try c.decodeIfPresent(Int.self,    forKey: .port)          ?? 8080
-        logLevel      = try c.decodeIfPresent(String.self, forKey: .logLevel)      ?? "notice"
-        uploadLimitMB = try c.decodeIfPresent(Int.self,    forKey: .uploadLimitMB) ?? 500
+        host = try c.decodeIfPresent(String.self, forKey: .host) ?? "127.0.0.1"
+        port = try c.decodeIfPresent(Int.self, forKey: .port) ?? 8080
+        uploadLimitMB = try c.decodeIfPresent(Int.self, forKey: .uploadLimitMB) ?? 500
     }
 
     enum CodingKeys: String, CodingKey {
         case host
         case port
-        case logLevel      = "log_level"
         case uploadLimitMB = "upload_limit_mb"
     }
 }
@@ -84,13 +113,13 @@ struct STTConfig: Codable, Sendable {
     var parakeet: ParakeetSettings?
 
     init() {
-        engine   = .parakeet
+        engine = .parakeet
         parakeet = nil
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        engine   = try c.decodeIfPresent(STTEngine.self,        forKey: .engine)   ?? .parakeet
+        engine = try c.decodeIfPresent(STTEngine.self, forKey: .engine) ?? .parakeet
         parakeet = try c.decodeIfPresent(ParakeetSettings.self, forKey: .parakeet)
     }
 
@@ -125,21 +154,69 @@ struct ParakeetSettings: Codable, Sendable {
 
 struct TTSConfig: Codable, Sendable {
     var engine: TTSEngine
+    var pocketTts: PocketTtsSettings?
 
-    init() { engine = .pocketTts }
+    init() {
+        engine = .pocketTts
+        pocketTts = nil
+    }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         engine = try c.decodeIfPresent(TTSEngine.self, forKey: .engine) ?? .pocketTts
+        pocketTts = try c.decodeIfPresent(PocketTtsSettings.self, forKey: .pocketTts)
     }
 
-    enum CodingKeys: CodingKey {
+    enum CodingKeys: String, CodingKey {
         case engine
+        case pocketTts = "pocket_tts"
     }
 }
 
 enum TTSEngine: String, Codable, Sendable {
     case pocketTts = "pocket_tts"
+}
+
+struct PocketTtsSettings: Codable, Sendable {
+    /// Strip emoji and collapse surrounding whitespace before synthesis.
+    /// PocketTTS renders emoji as creaky artifacts; default is true.
+    var sanitizeEmoji: Bool
+
+    init() { sanitizeEmoji = true }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sanitizeEmoji = try c.decodeIfPresent(Bool.self, forKey: .sanitizeEmoji) ?? true
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sanitizeEmoji = "sanitize_emoji"
+    }
+}
+
+// MARK: - Wyoming config
+
+struct WyomingConfig: Codable, Sendable {
+    /// Bind address for the Wyoming protocol server. Default: "127.0.0.1".
+    var host: String
+    /// TCP port for the Wyoming protocol server. Set to 0 to disable. Default: 10300.
+    var port: Int
+
+    init() {
+        host = "127.0.0.1"
+        port = 10300
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        host = try c.decodeIfPresent(String.self, forKey: .host) ?? "127.0.0.1"
+        port = try c.decodeIfPresent(Int.self, forKey: .port) ?? 10300
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case host
+        case port
+    }
 }
 
 // MARK: - Vapor DI

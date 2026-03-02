@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Swift formatting pre-commit hook.
+# Install via: scripts/install-hooks.sh
+
+set -euo pipefail
+
+# Collect staged .swift files
+STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep '\.swift$' || true)
+
+if [[ -z "$STAGED" ]]; then
+    exit 0
+fi
+
+FAILED=0
+for FILE in $STAGED; do
+    if ! swift format lint "$FILE" 2>/dev/null; then
+        echo "  $FILE"
+        FAILED=1
+    fi
+done
+
+if [[ $FAILED -eq 1 ]]; then
+    echo ""
+    echo "swift-format: one or more staged files are not formatted."
+    echo "Run the following to fix them, then re-stage:"
+    echo ""
+    echo "  swift format --in-place --recursive Sources/ Tests/"
+    echo ""
+    exit 1
+fi

@@ -1,9 +1,9 @@
-import XCTest
 import XCTVapor
+import XCTest
+
 @testable import speech_server
 
 final class TranscriptionIntegrationTests: XCTestCase {
-
     var app: Application!
     private let boundary = "TestBoundary1234567890"
 
@@ -46,7 +46,8 @@ final class TranscriptionIntegrationTests: XCTestCase {
         let wav = try fixtureWAV
         let body = transcriptionBody(file: wav)
 
-        try await app.test(.POST, "/audio/transcriptions",
+        try await app.test(
+            .POST, "/audio/transcriptions",
             headers: transcriptionHeaders(),
             body: ByteBuffer(data: body)
         ) { res async throws in
@@ -60,15 +61,17 @@ final class TranscriptionIntegrationTests: XCTestCase {
         let wav = try fixtureWAV
         let body = transcriptionBody(file: wav, fields: [(name: "response_format", value: "text")])
 
-        try await app.test(.POST, "/audio/transcriptions",
+        try await app.test(
+            .POST, "/audio/transcriptions",
             headers: transcriptionHeaders(),
             body: ByteBuffer(data: body)
         ) { res async throws in
             XCTAssertEqual(res.status, .ok)
             XCTAssertEqual(res.headers.contentType?.type, "text")
             let text = res.body.string
-            XCTAssertFalse(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                           "Plain text response should be non-empty")
+            XCTAssertFalse(
+                text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                "Plain text response should be non-empty")
         }
     }
 
@@ -76,7 +79,8 @@ final class TranscriptionIntegrationTests: XCTestCase {
         let wav = try fixtureWAV
         let body = transcriptionBody(file: wav, fields: [(name: "response_format", value: "verbose_json")])
 
-        try await app.test(.POST, "/audio/transcriptions",
+        try await app.test(
+            .POST, "/audio/transcriptions",
             headers: transcriptionHeaders(),
             body: ByteBuffer(data: body)
         ) { res async throws in
@@ -92,13 +96,16 @@ final class TranscriptionIntegrationTests: XCTestCase {
 
     func testVerboseJSONWithWordTimestamps() async throws {
         let wav = try fixtureWAV
-        let body = transcriptionBody(file: wav, fields: [
-            (name: "response_format", value: "verbose_json"),
-            (name: "timestamp_granularities[]", value: "word"),
-            (name: "timestamp_granularities[]", value: "segment"),
-        ])
+        let body = transcriptionBody(
+            file: wav,
+            fields: [
+                (name: "response_format", value: "verbose_json"),
+                (name: "timestamp_granularities[]", value: "word"),
+                (name: "timestamp_granularities[]", value: "segment"),
+            ])
 
-        try await app.test(.POST, "/audio/transcriptions",
+        try await app.test(
+            .POST, "/audio/transcriptions",
             headers: transcriptionHeaders(),
             body: ByteBuffer(data: body)
         ) { res async throws in
@@ -114,7 +121,8 @@ final class TranscriptionIntegrationTests: XCTestCase {
         let wav = try fixtureWAV
         let body = transcriptionBody(file: wav)
 
-        try await app.test(.POST, "/v1/audio/transcriptions",
+        try await app.test(
+            .POST, "/v1/audio/transcriptions",
             headers: transcriptionHeaders(),
             body: ByteBuffer(data: body)
         ) { res async throws in
@@ -130,7 +138,8 @@ final class TranscriptionIntegrationTests: XCTestCase {
         let aiff = try fixture("test", "aiff")
         let body = transcriptionBody(file: aiff, filename: "test.aiff")
 
-        try await app.test(.POST, "/audio/transcriptions",
+        try await app.test(
+            .POST, "/audio/transcriptions",
             headers: transcriptionHeaders(),
             body: ByteBuffer(data: body)
         ) { res async throws in
@@ -144,7 +153,8 @@ final class TranscriptionIntegrationTests: XCTestCase {
         let m4a = try fixture("test_long", "m4a")
         let body = transcriptionBody(file: m4a, filename: "test_long.m4a")
 
-        try await app.test(.POST, "/audio/transcriptions",
+        try await app.test(
+            .POST, "/audio/transcriptions",
             headers: transcriptionHeaders(),
             body: ByteBuffer(data: body)
         ) { res async throws in
@@ -158,7 +168,8 @@ final class TranscriptionIntegrationTests: XCTestCase {
         let wav = try fixture("test_long", "wav")
         let body = transcriptionBody(file: wav, filename: "test_long.wav")
 
-        try await app.test(.POST, "/audio/transcriptions",
+        try await app.test(
+            .POST, "/audio/transcriptions",
             headers: transcriptionHeaders(),
             body: ByteBuffer(data: body)
         ) { res async throws in
@@ -183,7 +194,8 @@ final class TranscriptionIntegrationTests: XCTestCase {
         var headers = HTTPHeaders()
         headers.replaceOrAdd(name: .contentType, value: "multipart/form-data; boundary=\(boundary2)")
 
-        try await app.test(.POST, "/audio/transcriptions",
+        try await app.test(
+            .POST, "/audio/transcriptions",
             headers: headers,
             body: ByteBuffer(data: body)
         ) { res async throws in
@@ -196,7 +208,8 @@ final class TranscriptionIntegrationTests: XCTestCase {
     func testEmptyFileField() async throws {
         let body = transcriptionBody(file: Data())  // zero-byte file
 
-        try await app.test(.POST, "/audio/transcriptions",
+        try await app.test(
+            .POST, "/audio/transcriptions",
             headers: transcriptionHeaders(),
             body: ByteBuffer(data: body)
         ) { res async throws in
@@ -210,14 +223,16 @@ final class TranscriptionIntegrationTests: XCTestCase {
         var headers = HTTPHeaders()
         headers.replaceOrAdd(name: .contentType, value: "multipart/form-data")  // no boundary param
 
-        try await app.test(.POST, "/audio/transcriptions",
+        try await app.test(
+            .POST, "/audio/transcriptions",
             headers: headers,
             body: ByteBuffer(data: Data())
         ) { res async throws in
             XCTAssertEqual(res.status, .badRequest)
             let errorResp = try res.content.decode(OpenAIErrorResponse.self)
-            XCTAssertTrue(errorResp.error.message.lowercased().contains("boundary"),
-                          "Error should mention missing boundary")
+            XCTAssertTrue(
+                errorResp.error.message.lowercased().contains("boundary"),
+                "Error should mention missing boundary")
         }
     }
 
@@ -226,7 +241,8 @@ final class TranscriptionIntegrationTests: XCTestCase {
         var headers = HTTPHeaders()
         headers.replaceOrAdd(name: .contentType, value: "multipart/form-data")
 
-        try await app.test(.POST, "/audio/transcriptions",
+        try await app.test(
+            .POST, "/audio/transcriptions",
             headers: headers,
             body: ByteBuffer(data: Data())
         ) { res async throws in
@@ -240,8 +256,8 @@ final class TranscriptionIntegrationTests: XCTestCase {
 
 // MARK: - ByteBuffer convenience
 
-private extension ByteBuffer {
-    var string: String {
+extension ByteBuffer {
+    fileprivate var string: String {
         var copy = self
         return copy.readString(length: copy.readableBytes) ?? ""
     }

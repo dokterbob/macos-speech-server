@@ -40,8 +40,9 @@ func audioFileExtension(filename: String, header: Data) -> String {
         return ".m4a"
     }
     // AIFF: "FORM" at 0, "AIFF"/"AIFC" at 8
-    if bytes[0...3] == [0x46, 0x4F, 0x52, 0x4D] &&
-       (bytes[8...11] == [0x41, 0x49, 0x46, 0x46] || bytes[8...11] == [0x41, 0x49, 0x46, 0x43]) {
+    if bytes[0...3] == [0x46, 0x4F, 0x52, 0x4D]
+        && (bytes[8...11] == [0x41, 0x49, 0x46, 0x46] || bytes[8...11] == [0x41, 0x49, 0x46, 0x43])
+    {
         return ".aiff"
     }
 

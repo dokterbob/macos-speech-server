@@ -11,9 +11,16 @@ struct TranscriptionSegment: Content {
     let end: Double
     let text: String
     let temperature: Double
-    let avg_logprob: Double
-    let compression_ratio: Double
-    let no_speech_prob: Double
+    let avgLogprob: Double
+    let compressionRatio: Double
+    let noSpeechProb: Double
+
+    enum CodingKeys: String, CodingKey {
+        case id, seek, start, end, text, temperature
+        case avgLogprob = "avg_logprob"
+        case compressionRatio = "compression_ratio"
+        case noSpeechProb = "no_speech_prob"
+    }
 }
 
 struct TranscriptionWord: Content {

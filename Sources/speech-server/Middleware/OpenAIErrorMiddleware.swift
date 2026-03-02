@@ -4,14 +4,16 @@ struct OpenAIErrorMiddleware: AsyncMiddleware {
     func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
         do {
             return try await next.respond(to: request)
-        } catch let abort as AbortError {
+        }
+        catch let abort as AbortError {
             return makeErrorResponse(
                 status: abort.status,
                 message: abort.reason,
                 type: "invalid_request_error",
                 on: request
             )
-        } catch {
+        }
+        catch {
             request.logger.error("Unhandled error: \(String(reflecting: error))")
             return makeErrorResponse(
                 status: .internalServerError,
@@ -39,8 +41,11 @@ struct OpenAIErrorMiddleware: AsyncMiddleware {
         let response = Response(status: status)
         do {
             try response.content.encode(body, as: .json)
-        } catch {
-            response.body = .init(string: #"{"error":{"message":"Internal Server Error","type":"server_error","param":null,"code":null}}"#)
+        }
+        catch {
+            response.body = .init(
+                string: #"{"error":{"message":"Internal Server Error","type":"server_error","param":null,"code":null}}"#
+            )
             response.headers.contentType = .json
         }
         return response

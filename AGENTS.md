@@ -4,7 +4,7 @@ Essential knowledge for AI agents working on this codebase.
 
 ## Project overview
 
-A macOS-native HTTP server that exposes OpenAI-compatible speech API endpoints, running entirely on-device. Built with Vapor (Swift web framework) and FluidAudio (on-device ASR via Apple's Neural Engine).
+A macOS-native HTTP server that exposes OpenAI-compatible speech API endpoints and a Wyoming protocol server for Home Assistant integration, running entirely on-device. Built with Vapor (Swift web framework) and FluidAudio (on-device ASR via Apple's Neural Engine).
 
 - **STT** is fully implemented using FluidAudio's `AsrManager`.
 - **TTS** is fully implemented using FluidAudio's `PocketTtsManager`. Only the `alba` voice is available; requesting any other voice returns a 400.
@@ -17,6 +17,7 @@ A macOS-native HTTP server that exposes OpenAI-compatible speech API endpoints, 
 | Speech-to-text | [FluidAudio](https://github.com/FluidInference/FluidAudio) | 0.7.9+ |
 | Multipart parsing | [multipart-kit](https://github.com/vapor/multipart-kit) | 4.0.0+ |
 | YAML parsing | [Yams](https://github.com/jpsim/Yams) | 6.0.1+ |
+| TCP networking | [swift-nio](https://github.com/apple/swift-nio) | 2.65.0+ |
 
 **Platform:** macOS 14+, Swift 6.2
 
@@ -52,8 +53,21 @@ FluidAudio is a newer library with less community documentation. Use the DeepWik
 
 **Config discovery order** (first match wins):
 1. `SPEECH_SERVER_CONFIG` env var — path to a YAML file
-2. `./speech-server.yaml` in the current working directory
+2. `./speech-server.yaml` in the current working directory (gitignored — copy from `speech-server.yaml.example`)
 3. Built-in defaults (all fields have sensible defaults matching original hardcoded values)
+
+**Struct hierarchy**:
+```
+ServerConfig
+  ├─ logLevel: String              (top-level, CodingKey "log_level")
+  ├─ servers: ServersConfig
+  │   ├─ http: HTTPConfig          (host, port, uploadLimitMB)
+  │   └─ wyoming: WyomingConfig    (host, port)
+  ├─ stt: STTConfig                (engine, parakeet settings)
+  └─ tts: TTSConfig                (engine, pocket_tts settings)
+```
+
+Access: `config.logLevel`, `config.servers.http.host`, `config.servers.wyoming.port`.
 
 **Engine enums** are exhaustive by design. Adding a new engine requires:
 1. Add a `case` to `STTEngine` or `TTSEngine` (the raw value becomes the YAML key, e.g. `"parakeet"`)
@@ -128,11 +142,11 @@ Use `source: .system` for file/API transcription, `source: .microphone` for live
 `FluidTTSService` wraps FluidAudio's `PocketTtsManager`:
 
 1. On init: downloads PocketTTS models (slow on first run, cached after).
-2. On synthesize (`synthesize`): pre-processes text with `NLTokenizer` (`.sentence` unit) to
-   ensure every sentence ends with `.!?`, then passes the result to a **single**
-   `manager.synthesize()` call. The library chunks at sentence boundaries (preferred over word
-   boundaries), and Mimi state stays continuous across all chunks for seamless audio.
-3. On streaming (`synthesizeStream`): splits text into sentences with `NLTokenizer`, calls
+2. On synthesize (`synthesize`): pre-processes text via the shared `detectSentences()` free function
+   (see `SentenceDetection.swift`) to ensure every sentence ends with `.!?`, then passes the result
+   to a **single** `manager.synthesize()` call. The library chunks at sentence boundaries (preferred
+   over word boundaries), and Mimi state stays continuous across all chunks for seamless audio.
+3. On streaming (`synthesizeStream`): splits text into sentences with `detectSentences()`, calls
    `manager.synthesizeDetailed()` once per sentence, yields raw 16-bit PCM chunks (no WAV
    header). Mimi state resets between sentences, which is imperceptible at natural breaks.
 4. Must call `initialize()` before first use -- will throw `FluidTTSError.notInitialized` otherwise.
@@ -153,6 +167,71 @@ every sentence boundary so the library always prefers `.!?` splits over word-bou
 **before** the stream starts (via `guard voice == "alba"`) because once response headers are
 sent the status code cannot be changed to 4xx.
 
+### Wyoming protocol
+
+The Wyoming server runs alongside the HTTP server on a single TCP port (default 10300). A single port serves both TTS and STT — the handler dispatches by incoming event type. Enabled by default; set `wyoming.port: 0` to disable.
+
+**Wire format** — each event has up to 3 parts:
+1. Header line: JSON + `\n`. Contains `type`, `version`, optionally `data_length` and `payload_length`.
+2. Data section (optional): exactly `data_length` bytes of UTF-8 JSON with the event's data dict.
+3. Payload section (optional): exactly `payload_length` raw bytes (binary, e.g. PCM audio).
+
+Example: `{"type":"audio-chunk","version":"1.0.0","data_length":36,"payload_length":2048}\n{"rate":16000,"width":2,"channels":1}<2048 bytes>`
+
+**Source files** (`Sources/speech-server/Wyoming/`):
+
+| File | Purpose |
+|------|---------|
+| `WyomingEvent.swift` | `WyomingEvent` struct + `WyomingValue` enum (supports string/int/double/bool/null/array/object). `serialize()` produces wire bytes. |
+| `WyomingFrameDecoder.swift` | Pure Swift state machine. `mutating func process(_ bytes: Data) -> [WyomingEvent]`. No NIO imports. |
+| `WyomingWAVWriter.swift` | Accumulates PCM chunks; `makeWAV()` / `writeToTempFile()` for STT handoff. |
+| `WyomingSession.swift` | `actor` combining TTS and STT. `handle(event:) -> AsyncStream<Data>` — state mutations are synchronous; TTS/STT I/O runs in Tasks that yield to the stream. |
+| `WyomingNIOHandler.swift` | `ChannelInboundHandler` (thin NIO glue). Feeds bytes to `WyomingFrameDecoder`, iterates `AsyncStream` from session, writes each event to the channel immediately. |
+| `WyomingServer.swift` | `ServerBootstrap` + `LifecycleHandler`. Binds single TCP port, creates session per connection. |
+
+**Session state machine**:
+```
+idle ──synthesize──→ [call TTSService.synthesizeStream, send audio-start/chunk/stop] ──→ idle
+idle ──synthesize-start──→ streamingSynthesize(voice, "")
+streamingSynthesize ──synthesize-chunk──→ [splitCompleteSentences, send audio per sentence] ──→ streamingSynthesize(voice, remainder)
+streamingSynthesize ──synthesize──→ [ignored, backward compat] (state unchanged)
+streamingSynthesize ──synthesize-stop──→ [synthesize remaining buffer, send audio + synthesize-stopped] ──→ idle
+idle ──transcribe──→ awaitingAudio
+awaitingAudio ──audio-start──→ recording(WAVWriter)
+recording ──audio-chunk──→ recording (append PCM)
+recording ──audio-stop──→ [call STTService.transcribe, send transcript] ──→ idle
+any state ──describe──→ [send info with both asr + tts capabilities] (state unchanged)
+```
+
+The `info` response advertises both `asr` and `tts` arrays so Home Assistant knows this single port handles both services. The TTS program includes `supports_synthesize_streaming: true` to advertise HA 2025.07+ streaming support.
+
+**Streaming TTS**: `handle(event:)` returns `AsyncStream<Data>` (non-async). For `synthesize`, the stream yields `audio-start` + each `audio-chunk` + `audio-stop` incrementally as TTS chunks arrive — `audio-start` is withheld until the first chunk so a completely failed synthesis sends nothing. State mutations (e.g. `state = .awaitingAudio`) happen synchronously before the stream is returned, so callers can immediately make the next `handle` call without draining the stream first. All other event types pre-fill the stream synchronously and finish immediately.
+
+**Config** (nested under `servers` in `speech-server.yaml`):
+```yaml
+servers:
+  http:
+    host: 127.0.0.1   # default 127.0.0.1; override with HTTP_HOST env var or Vapor's --hostname flag
+    port: 8080        # default 8080; override with HTTP_PORT env var or Vapor's --port flag
+  wyoming:
+    host: 127.0.0.1   # default 127.0.0.1; override with WYOMING_HOST env var (independent of http.host)
+    port: 10300       # 0 = disabled; default 10300; override with WYOMING_PORT env var
+```
+
+Both `http.host` and `wyoming.host` are independently configurable — they do not need to match.
+
+**Test files** (`Tests/speech-serverTests/`):
+
+| File | What it tests | Models needed? |
+|------|---------------|----------------|
+| `WyomingConfigTests.swift` | YAML parsing, defaults, port 0 disable | No |
+| `WyomingEventTests.swift` | serialize/deserialize, WyomingValue conversions, round-trip | No |
+| `WyomingFrameDecoderTests.swift` | Header-only, with data, with payload, partial feeds, multi-event, reset | No |
+| `WyomingWAVWriterTests.swift` | Valid WAV header bytes, multi-chunk, cleanup, custom sample rates | No |
+| `WyomingSessionTests.swift` | describe→info, synthesize→audio sequence, STT flow, errors, streaming order, streaming synthesis (mock services) | No |
+| `SentenceDetectionTests.swift` | `splitCompleteSentences` / `detectSentences` free functions | No |
+| `Helpers/MockServices.swift` | `MockTTSService` + `MockSTTService` for session tests | No |
+
 ### Error handling
 
 All errors are caught by `OpenAIErrorMiddleware` and returned as:
@@ -167,6 +246,27 @@ All errors are caught by `OpenAIErrorMiddleware` and returned as:
   }
 }
 ```
+
+## Code formatting
+
+All Swift code is formatted with `swift format` (bundled with Swift 6.2). Config is in `.swift-format` at the repo root (120-char line length, 4-space indent).
+
+```bash
+# Format everything in-place
+swift format --in-place --recursive Sources/ Tests/
+
+# Lint check (used by CI and the pre-commit hook)
+swift format lint --strict --recursive Sources/ Tests/
+```
+
+**Pre-commit hook**: `scripts/pre-commit` rejects commits with unformatted staged `.swift` files.
+Install with: `scripts/install-hooks.sh`
+
+**CI**: `.github/workflows/swift-format.yml` runs the lint check on every push and PR to `main`.
+
+**Important for agents**: always run `swift format --in-place --recursive Sources/ Tests/` before finishing any task that modifies Swift files. The CI check is strict and will fail the build if any file is not formatted.
+
+**Snake_case CodingKeys**: `SpeechRequest` and `TranscriptionSegment` use explicit `CodingKeys` to map camelCase Swift properties to snake_case JSON fields (e.g. `responseFormat` → `"response_format"`). Do not revert to bare snake_case property names — the `AlwaysUseLowerCamelCase` lint rule will reject them.
 
 ## Build and run
 
@@ -200,6 +300,13 @@ swift test --filter ServerConfig  # run a specific test class
 | `TranscriptionIntegrationTests.swift` | Integration | Real STT pipeline via Vapor test client |
 | `SpeechIntegrationTests.swift` | Integration | Real TTS pipeline via Vapor test client |
 | `RoundTripIntegrationTests.swift` | Integration | TTS→STT round-trip similarity check |
+| `WyomingConfigTests.swift` | Unit | Wyoming YAML config — no models needed |
+| `WyomingEventTests.swift` | Unit | Wyoming event serialize/parse — no models needed |
+| `WyomingFrameDecoderTests.swift` | Unit | Wyoming frame decoder — no models needed |
+| `WyomingWAVWriterTests.swift` | Unit | Wyoming WAV writer — no models needed |
+| `WyomingSessionTests.swift` | Unit | Wyoming session with mock services — no models needed |
+| `SentenceDetectionTests.swift` | Unit | `splitCompleteSentences` / `detectSentences` — no models needed |
+| `Helpers/MockServices.swift` | Helper | MockTTSService + MockSTTService |
 
 **First run**: integration tests load real FluidAudio models (STT + TTS). Model download takes several minutes; subsequent runs use the on-disk cache and start in seconds. The shared app singleton (`_appTask` in `TestApp.swift`) ensures models are initialized once per `swift test` invocation.
 
@@ -247,10 +354,11 @@ The repository supports launchd deployment via files in `deploy/`:
 
 - **Async middleware**: use `AsyncMiddleware` protocol (not the `EventLoopFuture`-based `Middleware`).
 - **Request body decoding**: The transcription endpoint uses `body: .stream` and manually streams to disk, then decodes with `FormDataDecoder` from MultipartKit. Other controllers use `req.content.decode()` for JSON.
-- **Upload limit**: enforced mid-stream in `TranscriptionController` using `req.application.serverConfig.server.uploadLimitMB` (default 500 MB); throws `413 Payload Too Large` before the full body is buffered. Not set via `app.routes.defaultMaxBodySize`.
+- **Upload limit**: enforced mid-stream in `TranscriptionController` using `req.application.serverConfig.servers.http.uploadLimitMB` (default 500 MB); throws `413 Payload Too Large` before the full body is buffered. Not set via `app.routes.defaultMaxBodySize`.
 - **Config**: `ServerConfig` is loaded in `configure()` from `SPEECH_SERVER_CONFIG` env var → `./speech-server.yaml` → built-in defaults. All engine-selection switches live in `configure.swift`; adding a new engine means adding a `case` there. Engine enum raw values match YAML keys (e.g. `parakeet`, `pocket_tts`).
 - **Logging**: use `request.logger` in request context, `app.logger` during setup. Log level is set to `.notice` in `configure.swift` to suppress Vapor's internal debug noise. All operational log calls (request details, transcription progress) use `.notice`; use `.warning` or above for anomalies. Services that need their own logger (e.g. `FluidSTTService`) create a `Logger(label:)` instance with `logLevel` set explicitly.
 - **STTService protocol**: `transcribe(audioURL: URL)` returns `TranscriptionResult` (with `text` and `duration`), not a plain `String`. The URL points to a temp file with the correct audio extension, created and cleaned up by the controller. The `verbose_json` response includes a `segments` array matching the OpenAI API shape.
 - **Audio format detection**: lives in `AudioFormatDetection.swift` as a package-internal free function `audioFileExtension(filename:header:)`. `header` is the first 12 bytes of the audio data (`Data`). Called from `TranscriptionController`, not from `FluidSTTService`. `File.contentType` in Vapor is derived from the filename extension and may be `nil` -- always use `audioFileExtension` instead.
 - **TTS voice validation**: `SpeechController` validates the voice with `guard voice == "alba"` before starting the stream (response headers already sent → can't return 4xx after). `FluidTTSService` still catches `PocketTtsConstantsLoader.LoadError.fileNotFound` and re-throws as `FluidTTSError.voiceNotFound` as a safety net for unknown errors, but this should only be reached if the guard is missing.
 - **Keeping docs in sync**: When making any user-visible change (new endpoint, changed behaviour, new field, new error), update `README.md`. When making any architectural change (new service, new constraint, new convention, new gotcha), update `AGENTS.md`. Both files should be updated in the same commit as the code change.
+- **TDD convention**: Unit tests are written BEFORE the implementation they cover. When implementing a feature, write the test file first (it will fail to compile until the implementation is added), then write the implementation. This ensures tests actually define the contract, not just document it.

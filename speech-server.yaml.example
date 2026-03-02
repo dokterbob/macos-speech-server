@@ -1,0 +1,29 @@
+# speech-server configuration
+# All fields are optional; omitted fields use the built-in defaults shown here.
+# Config discovery order:
+#   1. SPEECH_SERVER_CONFIG env var (path to this file)
+#   2. ./speech-server.yaml in the working directory (this file, if present)
+#   3. Built-in defaults
+#
+# speech-server.yaml is gitignored so local IPs stay out of version control.
+# Copy this file to speech-server.yaml and edit as needed.
+
+log_level: notice     # trace | debug | info | notice | warning | error | critical
+
+servers:
+  http:
+    host: 127.0.0.1       # Bind address; override with HTTP_HOST env var or Vapor's --hostname flag.
+    port: 8080            # Listening port; override with HTTP_PORT env var or Vapor's --port flag.
+    upload_limit_mb: 500  # Maximum multipart upload size for /audio/transcriptions
+  wyoming:
+    host: 127.0.0.1       # Bind address for Wyoming TCP server; override with WYOMING_HOST env var.
+    port: 10300           # TCP port for Wyoming protocol (Home Assistant). 0 = disabled; override with WYOMING_PORT env var.
+
+stt:
+  engine: parakeet      # Speech-to-text engine. Currently only: parakeet
+  parakeet:
+    model_version: v3   # v3 = Parakeet TDT 0.6B v3, multilingual (25 langs, default)
+                        # v2 = Parakeet TDT 0.6B v2, English-only (higher recall)
+
+tts:
+  engine: pocket_tts    # Text-to-speech engine. Currently only: pocket_tts
