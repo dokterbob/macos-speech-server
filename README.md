@@ -2,7 +2,7 @@
 
 Local, private speech-to-text (STT) and text-to-speech (TTS) server for macOS with OpenAI-compatible and Home Assistant (Wyoming) support.
 
-Runs entirely on-device using Apple's Neural Engine via [FluidAudio](https://github.com/FluidInference/FluidAudio) -- no cloud services, no API keys, no data leaves your machine.
+Runs entirely on-device using Apple's Neural Engine via [FluidAudio](https://github.com/FluidInference/FluidAudio) -- no cloud services, no API keys, no data leaves your machine. Models are loaded once at startup and served to any device on your network, so a single Mac with Apple Silicon can handle transcription and speech for your entire household.
 
 Two interfaces, one server:
 
@@ -32,7 +32,7 @@ All server settings can be customised via a YAML config file. Create `speech-ser
 
 ```yaml
 server:
-  host: 127.0.0.1       # use 0.0.0.0 to listen on all interfaces
+  host: 127.0.0.1       # use your LAN or Tailscale IP to accept connections from other devices
   port: 8080
   log_level: notice     # trace | debug | info | notice | warning | error | critical
   upload_limit_mb: 500
@@ -61,8 +61,8 @@ All fields are optional — omitted fields use the defaults shown above.
 # Use an explicit config file via env var
 SPEECH_SERVER_CONFIG=/etc/speech-server.yaml swift run speech-server
 
-# Vapor's built-in --hostname and --port still override config-file values
-swift run speech-server serve --hostname 0.0.0.0 --port 9090
+# Vapor's --hostname and --port flags override config-file values
+swift run speech-server serve --hostname 192.168.1.50 --port 9090
 ```
 
 ## API
@@ -143,6 +143,61 @@ curl -X POST http://localhost:8080/v1/audio/speech \
   --output speech.pcm
 ```
 
+## Compatible apps
+
+The HTTP API is compatible with any app or library that supports a configurable OpenAI base URL. No real API key is needed -- the server ignores `Authorization` headers, so enter any non-empty string.
+
+### MacWhisper
+
+[MacWhisper](https://goodsnooze.gumroad.com/l/macwhisper) has built-in support for custom transcription providers:
+
+1. Open MacWhisper **Preferences**
+2. Go to the **Provider** tab and choose **Custom**
+3. Set the **API URL** to `http://<host>:8080/v1/audio/transcriptions`
+4. Enter any string as the **API Key** (e.g. `local`)
+
+Audio is sent directly to the endpoint; transcription happens entirely on-device with no round-trip to the cloud.
+
+### Other apps
+
+Any tool that supports a configurable OpenAI base URL should work out of the box: set the base URL to `http://<host>:8080` and use any string as the API key. This includes the official OpenAI Python and JavaScript SDKs, and similar tools.
+
+## Accessing from other machines
+
+By default the server binds to `127.0.0.1` and is only reachable locally. To serve requests from other devices -- another Mac, a phone, a Home Assistant instance -- bind to a reachable address and make sure the ports are accessible.
+
+### Tailscale (recommended)
+
+[Tailscale](https://tailscale.com/) gives every device a stable private IP with no port-forwarding or firewall rules, and works across different networks (home, office, mobile). Both the HTTP API port and the Wyoming port are plain TCP; Tailscale handles encryption transparently.
+
+**Recipe:**
+
+1. Install Tailscale on the Mac running the server and on any device that needs access.
+2. Note the Mac's Tailscale IP (e.g. `100.x.y.z`) from the menu-bar icon.
+3. Bind the server to that IP in `speech-server.yaml`:
+
+```yaml
+server:
+  host: 100.x.y.z   # your Mac's Tailscale IP
+wyoming:
+  port: 10300
+```
+
+4. Point your client at `http://100.x.y.z:8080` (HTTP API) or `100.x.y.z:10300` (Wyoming).
+
+### Local network
+
+Find your Mac's LAN IP in **System Settings > Network**, select your active connection (Wi-Fi or Ethernet), and note the IP address (e.g. `192.168.1.50`). Bind the server to that address:
+
+```yaml
+server:
+  host: 192.168.1.50   # your Mac's LAN IP
+wyoming:
+  port: 10300
+```
+
+Use that same IP in your client configuration. Note that LAN IPs can change when devices reconnect; consider assigning a DHCP reservation in your router, or use Tailscale for a stable address.
+
 ## Home Assistant
 
 macos-speech-server speaks the [Wyoming protocol](https://github.com/rhasspy/wyoming), enabling fully on-device STT and TTS for [Home Assistant](https://www.home-assistant.io/) voice pipelines via the [Wyoming integration](https://www.home-assistant.io/integrations/wyoming/).
@@ -151,14 +206,7 @@ A single TCP port (default `10300`) handles both STT and TTS -- Home Assistant d
 
 ### Network setup
 
-The default `server.host: 127.0.0.1` binds the HTTP server to localhost only. For Home Assistant running on another machine (or in a VM) you must also make the Wyoming port reachable. Set `server.host` to `0.0.0.0` (all interfaces) or a specific LAN/Tailscale IP in your `speech-server.yaml`:
-
-```yaml
-server:
-  host: 0.0.0.0   # listen on all interfaces so HA can reach the HTTP API too
-wyoming:
-  port: 10300     # ensure this port is accessible from your HA host
-```
+Home Assistant typically runs on a separate machine, so the Wyoming port must be reachable from it. See [Accessing from other machines](#accessing-from-other-machines) above for Tailscale and LAN options -- in either case, set `server.host` to your Mac's specific IP so both the HTTP API and Wyoming ports are reachable from HA.
 
 ### Adding the Wyoming integration in Home Assistant
 
