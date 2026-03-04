@@ -350,6 +350,17 @@ The repository supports launchd deployment via files in `deploy/`:
 - Plist path: `~/Library/LaunchAgents/com.local.speech-server.plist`.
 - The agent plist template uses `__HOME__` placeholders; `deploy/install-agent.sh` resolves them to absolute paths before loading.
 
+## Pull request workflow
+
+All changes must go through a pull request. Never push directly to `main`.
+
+1. Create a feature branch: `git checkout -b feature/short-description` or `fix/issue-description`.
+2. Make changes (write tests first — see TDD convention below).
+3. Format Swift files: `swift format --in-place --recursive Sources/ Tests/`
+4. Verify tests pass: `swift test`
+5. Open a PR targeting `main`. The PR description should explain *why* the change is needed, not just what changed.
+6. CI must be green (formatting lint + tests) before merging.
+
 ## Conventions
 
 - **Async middleware**: use `AsyncMiddleware` protocol (not the `EventLoopFuture`-based `Middleware`).
