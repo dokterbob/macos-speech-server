@@ -322,6 +322,34 @@ swift test --filter ServerConfig  # run a specific test class
 - **Concurrency**: redundant runs on rapid pushes are cancelled via `concurrency.cancel-in-progress: true`.
 - **Cold-cache run**: model download + SPM compilation takes ~10-20 min. Warm-cache run: ~1-2 min.
 
+## Deployment
+
+The repository supports launchd deployment via files in `deploy/`:
+
+- `com.local.speech-server.plist`: LaunchDaemon template (system-wide, persistent at boot).
+- `com.local.speech-server.agent.plist`: LaunchAgent template (per-user, starts at login).
+- `install-daemon.sh` / `uninstall-daemon.sh`: install and remove LaunchDaemon deployment.
+- `install-agent.sh` / `uninstall-agent.sh`: install and remove LaunchAgent deployment.
+
+**LaunchDaemon conventions:**
+- Service label: `com.local.speech-server`.
+- Service account: dedicated `_speech-server` user/group.
+- Binary path: `/usr/local/bin/speech-server`.
+- Config path: `/etc/speech-server/speech-server.yaml` (wired via `SPEECH_SERVER_CONFIG`).
+- Log paths: `/var/log/speech-server/output.log` and `/var/log/speech-server/error.log`.
+- Plist path: `/Library/LaunchDaemons/com.local.speech-server.plist`.
+
+**Model cache behavior (daemon):**
+- FluidAudio model cache for daemon mode lives under `/Users/_speech-server/Library/Application Support/FluidAudio`.
+- `deploy/install-daemon.sh` attempts to pre-populate this cache from the invoking user's cache (`$SUDO_USER`) unless `--skip-model-copy` is passed.
+
+**LaunchAgent conventions:**
+- Binary path: `~/bin/speech-server`.
+- Config path: `~/.config/speech-server/speech-server.yaml`.
+- Logs: `~/Library/Logs/speech-server/`.
+- Plist path: `~/Library/LaunchAgents/com.local.speech-server.plist`.
+- The agent plist template uses `__HOME__` placeholders; `deploy/install-agent.sh` resolves them to absolute paths before loading.
+
 ## Pull request workflow
 
 All changes must go through a pull request. Never push directly to `main`.
