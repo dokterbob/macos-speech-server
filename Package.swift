@@ -7,7 +7,10 @@ let package = Package(
     platforms: [.macOS(.v14)],
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.76.0"),
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.12.3"),
+        // FluidAudio 0.12.2+ uses MLMultiArrayDataType.int8 guarded by #if swift(>=6.2),
+        // but .int8 requires the macOS 26 SDK — breaks on macOS 15 CI runners.
+        // Pin to <0.12.2 until upstream fixes the guard. See: https://github.com/FluidInference/FluidAudio/issues/363
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", "0.12.0"..<"0.12.2"),
         .package(url: "https://github.com/vapor/multipart-kit.git", from: "4.0.0"),
         .package(url: "https://github.com/jpsim/Yams.git", from: "6.0.1"),
         // async-http-client 1.31+ depends on swift-configuration, which uses Data.bytes.
