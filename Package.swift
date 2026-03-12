@@ -7,7 +7,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.76.0"),
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.7.9"),
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.12.3"),
         .package(url: "https://github.com/vapor/multipart-kit.git", from: "4.0.0"),
         .package(url: "https://github.com/jpsim/Yams.git", from: "6.0.1"),
         // async-http-client 1.31+ depends on swift-configuration, which uses Data.bytes.
