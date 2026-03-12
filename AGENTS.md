@@ -171,6 +171,8 @@ sent the status code cannot be changed to 4xx.
 
 The Wyoming server runs alongside the HTTP server on a single TCP port (default 10300). A single port serves both TTS and STT — the handler dispatches by incoming event type. Enabled by default; set `wyoming.port: 0` to disable.
 
+**Testing note**: `configure.swift` skips Wyoming registration when `app.environment == .testing`. This mirrors how Vapor skips the HTTP bind in test mode — Vapor's `.testing` environment only suppresses the HTTP server, not lifecycle handlers. Without this guard, integration tests would attempt a real TCP `bind()` and fail with `EADDRINUSE` if a production server is running on the same port.
+
 **Wire format** — each event has up to 3 parts:
 1. Header line: JSON + `\n`. Contains `type`, `version`, optionally `data_length` and `payload_length`.
 2. Data section (optional): exactly `data_length` bytes of UTF-8 JSON with the event's data dict.
@@ -266,6 +268,8 @@ Install with: `scripts/install-hooks.sh`
 
 **Important for agents**: always run `swift format --in-place --recursive Sources/ Tests/` before finishing any task that modifies Swift files. The CI check is strict and will fail the build if any file is not formatted.
 
+**Important for agents**: after formatting, always run `swift test` to confirm all tests pass before considering a task complete. Unit tests are fast; integration tests require model downloads on first run but are cached after that.
+
 **Snake_case CodingKeys**: `SpeechRequest` and `TranscriptionSegment` use explicit `CodingKeys` to map camelCase Swift properties to snake_case JSON fields (e.g. `responseFormat` → `"response_format"`). Do not revert to bare snake_case property names — the `AlwaysUseLowerCamelCase` lint rule will reject them.
 
 ## Build and run
@@ -293,7 +297,7 @@ swift test --filter ServerConfig  # run a specific test class
 
 | File | Type | Notes |
 |------|------|-------|
-| `Helpers/TestApp.swift` | Helper | `sharedTestApp()` singleton, multipart builder, word-overlap helper |
+| `Helpers/TestApp.swift` | Helper | `sharedTestApp()` singleton, multipart builder, word-overlap helper. Uses a temp `{}` YAML file to suppress local `speech-server.yaml`. Registers `AppShutdownObserver` (via `XCTestObservationCenter`) to call `app.asyncShutdown()` at bundle finish — required because `ServeCommand` has a `deinit` assertion that fires if its async shutdown was never called. |
 | `ServerConfigTests.swift` | Unit | YAML parsing, defaults — no models needed |
 | `AudioFormatDetectionTests.swift` | Unit | `audioFileExtension()` — no models needed |
 | `SpeechRequestTests.swift` | Unit | `SpeechRequest` resolved defaults — no models needed |

@@ -49,9 +49,13 @@ struct ServerConfig: Codable, Sendable {
         return .default
     }
 
-    private static func loadFromFile(path: String) throws -> ServerConfig {
+    static func loadFromFile(path: String) throws -> ServerConfig {
         let url = URL(fileURLWithPath: path)
         let contents = try String(contentsOf: url, encoding: .utf8)
+        // An empty file (e.g. /dev/null) means "use all defaults".
+        guard !contents.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .default
+        }
         return try YAMLDecoder().decode(ServerConfig.self, from: contents)
     }
 }

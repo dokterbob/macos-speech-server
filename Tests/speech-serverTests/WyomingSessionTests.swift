@@ -3,13 +3,19 @@ import XCTest
 @testable import speech_server
 
 final class WyomingSessionTests: XCTestCase {
-    // MARK: - Helper
+    // MARK: - Helpers
 
     /// Collects all values from an AsyncStream into an array.
     private func collect(_ stream: AsyncStream<Data>) async -> [Data] {
         var results: [Data] = []
         for await data in stream { results.append(data) }
         return results
+    }
+
+    /// Concatenates response chunks and decodes them as Wyoming events.
+    private func decodeEvents(from responses: [Data]) -> [WyomingEvent] {
+        var decoder = WyomingFrameDecoder()
+        return decoder.process(responses.reduce(Data(), +))
     }
 
     // MARK: - describe → info
@@ -23,9 +29,7 @@ final class WyomingSessionTests: XCTestCase {
         let responses = await collect(stream)
         XCTAssertEqual(responses.count, 1)
 
-        // Decode the response event
-        var decoder = WyomingFrameDecoder()
-        let events = decoder.process(responses[0])
+        let events = decodeEvents(from: responses)
         XCTAssertEqual(events.count, 1)
         XCTAssertEqual(events[0].type, "info")
     }
@@ -37,8 +41,7 @@ final class WyomingSessionTests: XCTestCase {
         )
         let stream = await session.handle(event: WyomingEvent(type: "describe"))
         let responses = await collect(stream)
-        var decoder = WyomingFrameDecoder()
-        let events = decoder.process(responses[0])
+        let events = decodeEvents(from: responses)
         let info = events[0]
 
         // Must have both asr and tts arrays
@@ -124,11 +127,7 @@ final class WyomingSessionTests: XCTestCase {
             ))
         let responses = await collect(stream)
 
-        // Decode all response events
-        var decoder = WyomingFrameDecoder()
-        var allData = Data()
-        for r in responses { allData.append(r) }
-        let events = decoder.process(allData)
+        let events = decodeEvents(from: responses)
 
         // Expect: audio-start, audio-chunk (×1), audio-stop
         XCTAssertEqual(events.count, 3)
@@ -159,11 +158,7 @@ final class WyomingSessionTests: XCTestCase {
                 data: ["text": .string("Two sentences. Here is one more.")]
             ))
         let responses = await collect(stream)
-
-        var decoder = WyomingFrameDecoder()
-        var allData = Data()
-        for r in responses { allData.append(r) }
-        let events = decoder.process(allData)
+        let events = decodeEvents(from: responses)
 
         // audio-start + 2×audio-chunk + audio-stop = 4 events
         XCTAssertEqual(events.count, 4)
@@ -294,8 +289,7 @@ final class WyomingSessionTests: XCTestCase {
         let r4 = await collect(stream4)
         XCTAssertEqual(r4.count, 1)
 
-        var decoder = WyomingFrameDecoder()
-        let events = decoder.process(r4[0])
+        let events = decodeEvents(from: r4)
         XCTAssertEqual(events.count, 1)
         XCTAssertEqual(events[0].type, "transcript")
         XCTAssertEqual(events[0].data["text"]?.stringValue, "hello world")
@@ -392,8 +386,7 @@ final class WyomingSessionTests: XCTestCase {
         )
         let stream = await session.handle(event: WyomingEvent(type: "describe"))
         let responses = await collect(stream)
-        var decoder = WyomingFrameDecoder()
-        let events = decoder.process(responses[0])
+        let events = decodeEvents(from: responses)
         let info = events[0]
 
         let ttsArray = info.data["tts"]?.arrayValue
@@ -430,10 +423,7 @@ final class WyomingSessionTests: XCTestCase {
         // synthesize-stop with empty buffer → only synthesize-stopped
         let r3 = await collect(await session.handle(event: WyomingEvent(type: "synthesize-stop")))
 
-        var decoder = WyomingFrameDecoder()
-        var allData = Data()
-        for d in r2 + r3 { allData.append(d) }
-        let events = decoder.process(allData)
+        let events = decodeEvents(from: r2 + r3)
 
         // audio-start, audio-chunk, audio-stop, synthesize-stopped
         XCTAssertEqual(events.count, 4)
@@ -476,10 +466,7 @@ final class WyomingSessionTests: XCTestCase {
 
         let r4 = await collect(await session.handle(event: WyomingEvent(type: "synthesize-stop")))
 
-        var decoder = WyomingFrameDecoder()
-        var allData = Data()
-        for d in r2 + r3 + r4 { allData.append(d) }
-        let events = decoder.process(allData)
+        let events = decodeEvents(from: r2 + r3 + r4)
 
         // Two complete audio sequences + synthesize-stopped
         let types = events.map { $0.type }
@@ -517,10 +504,7 @@ final class WyomingSessionTests: XCTestCase {
         // synthesize-stop: remaining "This is" should be synthesized
         let r3 = await collect(await session.handle(event: WyomingEvent(type: "synthesize-stop")))
 
-        var decoder = WyomingFrameDecoder()
-        var allData = Data()
-        for d in r2 + r3 { allData.append(d) }
-        let events = decoder.process(allData)
+        let events = decodeEvents(from: r2 + r3)
 
         // "Hello world." synthesized from chunk, "This is." synthesized at stop
         let types = events.map { $0.type }
@@ -564,10 +548,7 @@ final class WyomingSessionTests: XCTestCase {
 
         // synthesize-stop should still finalise the streaming session
         let rStop = await collect(await session.handle(event: WyomingEvent(type: "synthesize-stop")))
-        var decoder = WyomingFrameDecoder()
-        var allData = Data()
-        for d in rStop { allData.append(d) }
-        let events = decoder.process(allData)
+        let events = decodeEvents(from: rStop)
         XCTAssertTrue(events.contains(where: { $0.type == "synthesize-stopped" }))
     }
 
@@ -587,10 +568,7 @@ final class WyomingSessionTests: XCTestCase {
         // synthesize-stop with no chunks → only synthesize-stopped, no audio
         let responses = await collect(await session.handle(event: WyomingEvent(type: "synthesize-stop")))
 
-        var decoder = WyomingFrameDecoder()
-        var allData = Data()
-        for d in responses { allData.append(d) }
-        let events = decoder.process(allData)
+        let events = decodeEvents(from: responses)
 
         XCTAssertEqual(events.count, 1)
         XCTAssertEqual(events[0].type, "synthesize-stopped")
@@ -618,10 +596,7 @@ final class WyomingSessionTests: XCTestCase {
 
         let rStop = await collect(await session.handle(event: WyomingEvent(type: "synthesize-stop")))
 
-        var decoder = WyomingFrameDecoder()
-        var allData = Data()
-        for d in rChunk + rStop { allData.append(d) }
-        let events = decoder.process(allData)
+        let events = decodeEvents(from: rChunk + rStop)
 
         // No audio chunks since TTS failed, but synthesize-stopped must still arrive
         XCTAssertFalse(events.contains(where: { $0.type == "audio-chunk" }))
@@ -673,8 +648,7 @@ final class WyomingSessionTests: XCTestCase {
         let stream = await session.handle(event: WyomingEvent(type: "describe"))
         let infoResponses = await collect(stream)
         XCTAssertEqual(infoResponses.count, 1)
-        var decoder = WyomingFrameDecoder()
-        let events = decoder.process(infoResponses[0])
+        let events = decodeEvents(from: infoResponses)
         XCTAssertEqual(events[0].type, "info")
     }
 }

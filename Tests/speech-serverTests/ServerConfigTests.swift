@@ -137,6 +137,20 @@ final class ServerConfigTests: XCTestCase {
         XCTAssertEqual(config.tts.engine, .pocketTts)
     }
 
+    func testEmptyFileProducesAllDefaults() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("empty-config-test-\(ProcessInfo.processInfo.processIdentifier).yaml")
+        try "".write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let config = try ServerConfig.loadFromFile(path: tmp.path)
+        XCTAssertEqual(config.servers.http.host, "127.0.0.1")
+        XCTAssertEqual(config.servers.http.port, 8080)
+        XCTAssertEqual(config.logLevel, "notice")
+        XCTAssertEqual(config.stt.engine, .parakeet)
+        XCTAssertEqual(config.tts.engine, .pocketTts)
+    }
+
     func testHTTPSubsectionOnly() throws {
         let yaml = """
             servers:
