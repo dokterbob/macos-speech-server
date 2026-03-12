@@ -20,6 +20,31 @@ final class SentenceDetectionTests: XCTestCase {
         XCTAssertEqual(result, ["Hello world."])
     }
 
+    func testDetectSentencesQuestionMark() {
+        XCTAssertEqual(detectSentences("Who are you?"), ["Who are you?"])
+    }
+
+    func testDetectSentencesExclamation() {
+        XCTAssertEqual(detectSentences("Watch out!"), ["Watch out!"])
+    }
+
+    func testDetectSentencesThreeSentences() {
+        let result = detectSentences("One. Two! Three?")
+        XCTAssertEqual(result, ["One.", "Two!", "Three?"])
+    }
+
+    func testDetectSentencesWhitespaceOnly() {
+        // Whitespace-only input should produce a single sentence with a period appended
+        // (the impl normalises and returns a non-empty result rather than crashing)
+        let result = detectSentences("   ")
+        XCTAssertFalse(result.isEmpty)
+    }
+
+    func testDetectSentencesEmptyString() {
+        // Empty string: either empty array or a single empty-ish sentence — must not crash
+        XCTAssertNoThrow(detectSentences(""))
+    }
+
     // MARK: - splitCompleteSentences
 
     func testSplitCompleteSentencesWithRemainder() {

@@ -16,8 +16,6 @@ final class RoundTripIntegrationTests: XCTestCase {
         app = try await sharedTestApp()
     }
 
-    override func tearDown() async throws {}
-
     // MARK: - Round-trip test
 
     func testRoundTripMultiSentence() async throws {

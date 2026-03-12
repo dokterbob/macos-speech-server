@@ -11,9 +11,6 @@ final class TranscriptionIntegrationTests: XCTestCase {
         app = try await sharedTestApp()
     }
 
-    // Don't shut the app down here — it's shared across test classes.
-    override func tearDown() async throws {}
-
     // MARK: - Fixture helpers
 
     private func fixture(_ name: String, _ ext: String) throws -> Data {
