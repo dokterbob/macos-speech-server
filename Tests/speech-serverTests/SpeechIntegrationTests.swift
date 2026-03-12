@@ -10,8 +10,6 @@ final class SpeechIntegrationTests: XCTestCase {
         app = try await sharedTestApp()
     }
 
-    override func tearDown() async throws {}
-
     // MARK: - Request helpers
 
     private func postSpeech(

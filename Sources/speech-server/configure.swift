@@ -83,7 +83,7 @@ func configure(_ app: Application) async throws {
     else {
         wyomingPort = config.servers.wyoming.port
     }
-    if wyomingPort > 0 {
+    if wyomingPort > 0 && app.environment != .testing {
         let wyomingServer = WyomingServer(
             host: wyomingHost,
             port: wyomingPort,

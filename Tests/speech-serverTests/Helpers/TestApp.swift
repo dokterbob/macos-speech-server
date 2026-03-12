@@ -1,5 +1,6 @@
 import Foundation
 import XCTVapor
+import XCTest
 
 @testable import speech_server
 
@@ -9,11 +10,38 @@ import XCTVapor
 // run; once cached on disk, initialization is fast but still non-trivial).
 // ---------------------------------------------------------------------------
 
+// Strong reference to the shutdown observer — XCTestObservationCenter holds observers weakly,
+// so without this the observer would be released immediately after registration.
+nonisolated(unsafe) private var _shutdownObserver: AppShutdownObserver?
+
 private let _appTask: Task<Application, Error> = Task {
     // Suppress the CWD speech-server.yaml so tests always use built-in defaults.
-    // (configure() calls ServerConfig.load() which finds the file in the package root)
+    // Write a minimal valid YAML file ({} = empty mapping → all fields use defaults)
+    // and point SPEECH_SERVER_CONFIG at it. Cannot use /dev/null — not readable in sandbox.
+    let tempConfig = FileManager.default.temporaryDirectory
+        .appendingPathComponent(
+            "speech-server-test-\(ProcessInfo.processInfo.processIdentifier).yaml")
+    try "{}\n".write(to: tempConfig, atomically: true, encoding: .utf8)
+    setenv("SPEECH_SERVER_CONFIG", tempConfig.path, 1)
     let app = try await Application.make(.testing)
-    try await configure(app)
+    do {
+        try await configure(app)
+    }
+    catch {
+        // If configure() throws, the app will be released without shutdown, triggering
+        // ServeCommand's deinit assertion. Explicitly shut it down first.
+        try? await app.asyncShutdown()
+        throw error
+    }
+    // Register shutdown observer so ServeCommand's deinit assertion is satisfied
+    // when the shared app is released at process exit. Must retain it ourselves because
+    // XCTestObservationCenter only holds a weak reference. Registration must happen
+    // on the main thread (XCTestObservationCenter requirement).
+    let observer = AppShutdownObserver()
+    _shutdownObserver = observer
+    await MainActor.run {
+        XCTestObservationCenter.shared.addTestObserver(observer)
+    }
     return app
 }
 
@@ -21,6 +49,25 @@ private let _appTask: Task<Application, Error> = Task {
 /// The app is initialized once; concurrent callers wait on the same Task.
 func sharedTestApp() async throws -> Application {
     try await _appTask.value
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle — call asyncShutdown() when the XCTest bundle finishes.
+// Application.make() registers a ServeCommand with a deinit assertion that
+// fires (SIGTRAP) if asyncShutdown() was not called before deinit.
+// ---------------------------------------------------------------------------
+
+private final class AppShutdownObserver: NSObject, XCTestObservation {
+    func testBundleDidFinish(_ testBundle: Bundle) {
+        let sema = DispatchSemaphore(value: 0)
+        Task.detached {
+            if let app = try? await _appTask.value {
+                try? await app.asyncShutdown()
+            }
+            sema.signal()
+        }
+        sema.wait()
+    }
 }
 
 // ---------------------------------------------------------------------------
