@@ -46,6 +46,12 @@ func configure(_ app: Application) async throws {
         try await ttsService.initialize(settings: config.tts.pocketTts ?? PocketTtsSettings())
         app.ttsService = ttsService
         app.logger.info("TTS models loaded.")
+    case .avspeech:
+        let ttsService = AVSpeechTTSService(settings: config.tts.avspeech ?? AVSpeechSettings())
+        app.ttsService = ttsService
+        app.logger.notice(
+            "AVSpeech TTS ready (\(ttsService.availableVoices.count) voices, default: \(ttsService.defaultVoice))."
+        )
     }
 
     // STT engine selection

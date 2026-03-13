@@ -159,26 +159,31 @@ struct ParakeetSettings: Codable, Sendable {
 struct TTSConfig: Codable, Sendable {
     var engine: TTSEngine
     var pocketTts: PocketTtsSettings?
+    var avspeech: AVSpeechSettings?
 
     init() {
         engine = .pocketTts
         pocketTts = nil
+        avspeech = nil
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         engine = try c.decodeIfPresent(TTSEngine.self, forKey: .engine) ?? .pocketTts
         pocketTts = try c.decodeIfPresent(PocketTtsSettings.self, forKey: .pocketTts)
+        avspeech = try c.decodeIfPresent(AVSpeechSettings.self, forKey: .avspeech)
     }
 
     enum CodingKeys: String, CodingKey {
         case engine
         case pocketTts = "pocket_tts"
+        case avspeech = "avspeech"
     }
 }
 
 enum TTSEngine: String, Codable, Sendable {
     case pocketTts = "pocket_tts"
+    case avspeech = "avspeech"
 }
 
 struct PocketTtsSettings: Codable, Sendable {
@@ -195,6 +200,31 @@ struct PocketTtsSettings: Codable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case sanitizeEmoji = "sanitize_emoji"
+    }
+}
+
+struct AVSpeechSettings: Codable, Sendable {
+    /// Default voice name for synthesis. Supports short names (e.g. "Samantha") and
+    /// full identifiers (e.g. "com.apple.voice.compact.en-US.Samantha").
+    /// Nil = system default voice for the current locale.
+    var defaultVoice: String?
+    /// Output sample rate in Hz. AVSpeechSynthesizer natively produces 22050 Hz.
+    var sampleRate: Int
+
+    init() {
+        defaultVoice = nil
+        sampleRate = 22_050
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        defaultVoice = try c.decodeIfPresent(String.self, forKey: .defaultVoice)
+        sampleRate = try c.decodeIfPresent(Int.self, forKey: .sampleRate) ?? 22_050
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case defaultVoice = "default_voice"
+        case sampleRate = "sample_rate"
     }
 }
 

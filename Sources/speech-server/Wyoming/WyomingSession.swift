@@ -165,7 +165,7 @@ actor WyomingSession {
         {
             return voiceName
         }
-        return "alba"
+        return ttsService.defaultVoice
     }
 
     private func applyAudioStart(event: WyomingEvent) {
@@ -201,8 +201,7 @@ actor WyomingSession {
             return
         }
 
-        // PocketTTS outputs 24 kHz, 16-bit mono PCM
-        let rate = 24000
+        let rate = ttsService.sampleRate
         let width = 2
         let channels = 1
         var chunkCount = 0
@@ -258,7 +257,7 @@ actor WyomingSession {
     private func streamSentences(
         _ sentences: [String], voice: String, continuation: AsyncStream<Data>.Continuation
     ) async {
-        let rate = 24000
+        let rate = ttsService.sampleRate
         let width = 2
         let channels = 1
 
@@ -324,7 +323,7 @@ actor WyomingSession {
     // MARK: - Info event
 
     private func makeInfoEvent() -> WyomingEvent {
-        let attribution = WyomingValue.object([
+        let asrAttribution = WyomingValue.object([
             "name": .string("FluidAudio"),
             "url": .string("https://github.com/FluidInference/FluidAudio"),
         ])
@@ -334,7 +333,7 @@ actor WyomingSession {
         let asrModel = WyomingValue.object([
             "name": .string("parakeet-tdt-0.6b"),
             "description": .string("Parakeet TDT 0.6B on-device ASR via FluidAudio"),
-            "attribution": attribution,
+            "attribution": asrAttribution,
             "installed": .bool(true),
             "version": .string("1.0.0"),
             "languages": .array([.string("en")]),
@@ -343,30 +342,36 @@ actor WyomingSession {
         let asrProgram = WyomingValue.object([
             "name": .string("macos-speech-server"),
             "description": .string("macOS on-device speech recognition via FluidAudio"),
-            "attribution": attribution,
+            "attribution": asrAttribution,
             "installed": .bool(true),
             "version": .string("1.0.0"),
             "models": .array([asrModel]),
         ])
 
         // Two-level TTS hierarchy: TtsProgram → voices: [TtsVoice]
-        // languages lives on TtsVoice, not on TtsProgram
-        let ttsVoice = WyomingValue.object([
-            "name": .string("alba"),
-            "description": .string("Alba voice"),
-            "attribution": attribution,
-            "installed": .bool(true),
-            "version": .string("1.0.0"),
-            "languages": .array([.string("en")]),
+        // Build voice list dynamically from the active TTSService.
+        let serverAttribution = WyomingValue.object([
+            "name": .string("macos-speech-server"),
+            "url": .string("https://github.com/dokterbob/macos-speech-server"),
         ])
+        let ttsVoices: [WyomingValue] = ttsService.availableVoices.map { name in
+            .object([
+                "name": .string(name),
+                "description": .string(name),
+                "attribution": serverAttribution,
+                "installed": .bool(true),
+                "version": .string("1.0.0"),
+                "languages": .array([.string("en")]),
+            ])
+        }
 
         let ttsProgram = WyomingValue.object([
             "name": .string("macos-speech-server"),
-            "description": .string("macOS on-device TTS via FluidAudio PocketTTS"),
-            "attribution": attribution,
+            "description": .string("macOS on-device TTS"),
+            "attribution": serverAttribution,
             "installed": .bool(true),
             "version": .string("1.0.0"),
-            "voices": .array([ttsVoice]),
+            "voices": .array(ttsVoices),
             "supports_synthesize_streaming": .bool(true),
         ])
 

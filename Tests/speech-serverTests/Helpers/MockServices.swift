@@ -9,10 +9,22 @@ struct MockTTSService: TTSService {
     let chunks: [Data]
     /// If true, both synthesize and synthesizeStream throw MockServiceError.failed.
     let shouldFail: Bool
+    let sampleRate: Int
+    let defaultVoice: String
+    let availableVoices: [String]
 
-    init(chunks: [Data] = [], shouldFail: Bool = false) {
+    init(
+        chunks: [Data] = [],
+        shouldFail: Bool = false,
+        sampleRate: Int = 24_000,
+        defaultVoice: String = "alba",
+        availableVoices: [String] = ["alba"]
+    ) {
         self.chunks = chunks
         self.shouldFail = shouldFail
+        self.sampleRate = sampleRate
+        self.defaultVoice = defaultVoice
+        self.availableVoices = availableVoices
     }
 
     func synthesize(text: String, voice: String) async throws -> Data {
