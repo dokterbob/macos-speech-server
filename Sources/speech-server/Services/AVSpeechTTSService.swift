@@ -89,8 +89,12 @@ final class AVSpeechTTSService: TTSService, Sendable {
         return makeWAV(pcmData: float32ToPCM16(allSamples), sampleRate: sampleRate)
     }
 
-    /// Streams per-buffer PCM chunks (Int16 LE, no WAV header), one chunk per
-    /// `AVAudioPCMBuffer` callback, split at sentence boundaries.
+    /// Streams Int16 LE PCM (no WAV header), one chunk per sentence.
+    ///
+    /// All Float32 samples for a sentence are accumulated first, then converted
+    /// with a single peak-normalisation pass. Per-buffer normalisation is avoided
+    /// because AVSpeech often delivers a quiet tail buffer whose near-zero peak
+    /// would be amplified to full scale, producing audible low-frequency artefacts.
     func synthesizeStream(text: String, voice: String) -> AsyncThrowingStream<Data, Error> {
         guard let identifier = voiceLookup[voice.lowercased()] else {
             return AsyncThrowingStream { continuation in
@@ -105,10 +109,10 @@ final class AVSpeechTTSService: TTSService, Sendable {
             Task {
                 do {
                     for sentence in sentences {
-                        let chunks = try await self.synthesizePCMChunks(
+                        let samples = try await self.synthesizeFloatSamples(
                             text: sentence, voiceIdentifier: identifier)
-                        for chunk in chunks {
-                            continuation.yield(chunk)
+                        if !samples.isEmpty {
+                            continuation.yield(float32ToPCM16(samples))
                         }
                     }
                     continuation.finish()
@@ -166,55 +170,6 @@ final class AVSpeechTTSService: TTSService, Sendable {
                     let count = Int(pcmBuffer.frameLength)
                     bridge.samples.append(
                         contentsOf: UnsafeBufferPointer(start: channelData[0], count: count))
-                }
-            }
-        }
-    }
-
-    /// Synthesises one utterance and returns per-buffer Int16 PCM chunks.
-    ///
-    /// `write(_:toBufferCallback:)` is asynchronous: it returns immediately and delivers
-    /// audio buffers on a background thread. The continuation is resumed from the
-    /// zero-length buffer callback, which fires when synthesis is complete.
-    private func synthesizePCMChunks(
-        text: String, voiceIdentifier: String
-    ) async throws
-        -> [Data]
-    {
-        // Bridge accumulates chunks and coordinates completion across threads.
-        // @unchecked Sendable: callbacks fire serially from a single background thread,
-        // so there is no concurrent mutation. `resumed` guards against double-resume
-        // because AVSpeechSynthesizer may deliver more than one zero-length buffer.
-        final class Bridge: @unchecked Sendable {
-            var chunks: [Data] = []
-            var resumed = false
-        }
-        let bridge = Bridge()
-
-        return try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<[Data], Error>) in
-            let synthesizer = AVSpeechSynthesizer()
-            let utterance = AVSpeechUtterance(string: text)
-            utterance.voice = AVSpeechSynthesisVoice(identifier: voiceIdentifier)
-
-            // write() returns immediately; callbacks fire asynchronously.
-            // The closure captures `synthesizer` to keep it alive until synthesis completes.
-            synthesizer.write(utterance) { [synthesizer] buffer in
-                _ = synthesizer  // retain until this callback fires
-                guard let pcmBuffer = buffer as? AVAudioPCMBuffer else { return }
-                if pcmBuffer.frameLength == 0 {
-                    // Zero-length buffer signals end of utterance.
-                    // Guard against double-resume in case multiple zero-length buffers arrive.
-                    if !bridge.resumed {
-                        bridge.resumed = true
-                        continuation.resume(returning: bridge.chunks)
-                    }
-                    return
-                }
-                if let channelData = pcmBuffer.floatChannelData {
-                    let count = Int(pcmBuffer.frameLength)
-                    let samples = Array(UnsafeBufferPointer(start: channelData[0], count: count))
-                    bridge.chunks.append(float32ToPCM16(samples))
                 }
             }
         }
