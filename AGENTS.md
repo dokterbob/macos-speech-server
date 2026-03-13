@@ -164,8 +164,68 @@ every sentence boundary so the library always prefers `.!?` splits over word-bou
 **Speech response streaming**: `SpeechController` uses Vapor's `asyncStream` body with
 `count: -1` (chunked transfer encoding). WAV responses include a 44-byte streaming header with
 `0x7FFFFFFF` size placeholders; PCM responses stream raw int16 bytes. Voice validation is done
-**before** the stream starts (via `guard voice == "alba"`) because once response headers are
-sent the status code cannot be changed to 4xx.
+**before** the stream starts (via `ttsService.availableVoices.contains(voice)`) because once
+response headers are sent the status code cannot be changed to 4xx.
+
+### AVSpeechTTSService
+
+`AVSpeechTTSService` wraps macOS's `AVSpeechSynthesizer` (no model downloads, 150+ voices):
+
+1. On init: enumerates `AVSpeechSynthesisVoice.speechVoices()`, builds a lowercase lookup map
+   (short name and full identifier → canonical identifier), sets `defaultVoice` from settings
+   or the system-locale default, reports `sampleRate` from settings (default 22050 Hz).
+2. On synthesize (`synthesize`): resolves voice via lookup, creates an `AVSpeechUtterance`,
+   calls `AVSpeechSynthesizer().write(utterance) { buffer in ... }`, accumulates all Float32
+   samples per utterance, peak-normalises once via `float32ToPCM16()`, wraps in WAV.
+3. On streaming (`synthesizeStream`): splits text into sentences with `detectSentences()`, runs
+   `synthesizeFloatSamples` per sentence, yields one PCM chunk per sentence (no header).
+   Splitting at sentence boundaries avoids the prosodic restart problem.
+4. No stored `AVSpeechSynthesizer` — a new instance is created per `write()` call. All stored
+   properties are immutable `let`, giving genuine (not `@unchecked`) `Sendable` conformance.
+
+**`AVSpeechSynthesizer.write()` is asynchronous**: the call returns immediately; buffer callbacks
+fire on a background thread. The zero-length buffer (`frameLength == 0`) signals completion.
+The bridge class uses a `CheckedContinuation` to map this callback API to `async/await`.
+
+**Multiple zero-length callbacks**: `write()` can fire the zero-length termination callback more
+than once. The bridge class guards with `var resumed = false` and calls `continuation.resume()`
+only on the first zero-length callback.
+
+**Per-buffer normalisation causes ringing**: normalising each buffer independently amplifies
+quiet tail buffers, producing low-frequency artefacts at utterance ends. The fix is to
+accumulate _all_ Float32 samples for a sentence and normalise once with a single
+`float32ToPCM16()` call.
+
+**Voice lookup**: stores `[String: String]` (lowercase name/identifier → canonical identifier),
+not `AVSpeechSynthesisVoice` objects (which are not `Sendable`). Siri voices are not
+accessible via public AVFoundation APIs and will not appear in the enumeration. Personal Voice
+support requires `requestPersonalVoiceAuthorization` and is tracked in issue #13.
+
+**Errors**: `AVSpeechTTSError.voiceNotFound(String)` is thrown when the requested voice name
+cannot be resolved via lookup. `AVSpeechTTSError.noAudioProduced` is thrown if the synthesiser
+delivers zero samples (e.g. empty utterance after preprocessing).
+
+### PCMConversion utilities
+
+`PCMConversion.swift` provides two package-internal free functions shared by both TTS services:
+
+- `float32ToPCM16(_ samples: [Float]) -> Data` — peak-normalises the sample batch (or uses
+  1.0 if all samples are silent) and converts to little-endian Int16 PCM bytes.
+- `makeWAV(pcmData:sampleRate:channels:bitsPerSample:) -> Data` — prepends a standard 44-byte
+  RIFF/WAVE header. Used for non-streaming (complete) WAV responses.
+
+### TTSService protocol
+
+The protocol (`TTSService.swift`) now includes three additional requirements read by controllers:
+
+```swift
+var sampleRate: Int { get }        // e.g. 24_000 (FluidTTS) or 22_050 (AVSpeech)
+var defaultVoice: String { get }   // e.g. "alba" or "Samantha"
+var availableVoices: [String] { get } // sorted list of short names
+```
+
+`SpeechController` uses these for dynamic voice validation and WAV header sample rate.
+`WyomingSession` uses them for the `describe` → `info` response and audio-start events.
 
 ### Wyoming protocol
 
@@ -232,6 +292,9 @@ Both `http.host` and `wyoming.host` are independently configurable — they do n
 | `WyomingWAVWriterTests.swift` | Valid WAV header bytes, multi-chunk, cleanup, custom sample rates | No |
 | `WyomingSessionTests.swift` | describe→info, synthesize→audio sequence, STT flow, errors, streaming order, streaming synthesis (mock services) | No |
 | `SentenceDetectionTests.swift` | `splitCompleteSentences` / `detectSentences` free functions | No |
+| `AVSpeechConfigTests.swift` | YAML parsing for `avspeech` engine and `AVSpeechSettings` | No |
+| `PCMConversionTests.swift` | `float32ToPCM16` and `makeWAV` utilities | No |
+| `AVSpeechTTSServiceTests.swift` | Real `AVSpeechTTSService` (uses macOS system voices) | No |
 | `Helpers/MockServices.swift` | `MockTTSService` + `MockSTTService` for session tests | No |
 
 ### Error handling
@@ -310,6 +373,9 @@ swift test --filter ServerConfig  # run a specific test class
 | `WyomingWAVWriterTests.swift` | Unit | Wyoming WAV writer — no models needed |
 | `WyomingSessionTests.swift` | Unit | Wyoming session with mock services — no models needed |
 | `SentenceDetectionTests.swift` | Unit | `splitCompleteSentences` / `detectSentences` — no models needed |
+| `AVSpeechConfigTests.swift` | Unit | YAML parsing for `avspeech` engine and `AVSpeechSettings` — no models needed |
+| `PCMConversionTests.swift` | Unit | `float32ToPCM16` and `makeWAV` — no models needed |
+| `AVSpeechTTSServiceTests.swift` | Unit | Real `AVSpeechTTSService` using macOS system voices — no models needed |
 | `Helpers/MockServices.swift` | Helper | MockTTSService + MockSTTService |
 
 **First run**: integration tests load real FluidAudio models (STT + TTS). Model download takes several minutes; subsequent runs use the on-disk cache and start in seconds. The shared app singleton (`_appTask` in `TestApp.swift`) ensures models are initialized once per `swift test` invocation.
@@ -374,6 +440,6 @@ All changes must go through a pull request. Never push directly to `main`.
 - **Logging**: use `request.logger` in request context, `app.logger` during setup. Log level is set to `.notice` in `configure.swift` to suppress Vapor's internal debug noise. All operational log calls (request details, transcription progress) use `.notice`; use `.warning` or above for anomalies. Services that need their own logger (e.g. `FluidSTTService`) create a `Logger(label:)` instance with `logLevel` set explicitly.
 - **STTService protocol**: `transcribe(audioURL: URL)` returns `TranscriptionResult` (with `text` and `duration`), not a plain `String`. The URL points to a temp file with the correct audio extension, created and cleaned up by the controller. The `verbose_json` response includes a `segments` array matching the OpenAI API shape.
 - **Audio format detection**: lives in `AudioFormatDetection.swift` as a package-internal free function `audioFileExtension(filename:header:)`. `header` is the first 12 bytes of the audio data (`Data`). Called from `TranscriptionController`, not from `FluidSTTService`. `File.contentType` in Vapor is derived from the filename extension and may be `nil` -- always use `audioFileExtension` instead.
-- **TTS voice validation**: `SpeechController` validates the voice with `guard voice == "alba"` before starting the stream (response headers already sent → can't return 4xx after). `FluidTTSService` still catches `PocketTtsConstantsLoader.LoadError.fileNotFound` and re-throws as `FluidTTSError.voiceNotFound` as a safety net for unknown errors, but this should only be reached if the guard is missing.
+- **TTS voice validation**: `SpeechController` validates the voice with `ttsService.availableVoices.contains(voice)` before starting the stream (response headers already sent → can't return 4xx after). The unrecognised-voice error lists up to 5 available voices in its message. `FluidTTSService` still catches `PocketTtsConstantsLoader.LoadError.fileNotFound` and re-throws as `FluidTTSError.voiceNotFound` as a safety net, but this should only be reached if the guard is missing.
 - **Keeping docs in sync**: When making any user-visible change (new endpoint, changed behaviour, new field, new error), update `README.md`. When making any architectural change (new service, new constraint, new convention, new gotcha), update `AGENTS.md`. Both files should be updated in the same commit as the code change.
 - **TDD convention**: Unit tests are written BEFORE the implementation they cover. When implementing a feature, write the test file first (it will fail to compile until the implementation is added), then write the implementation. This ensures tests actually define the contract, not just document it.

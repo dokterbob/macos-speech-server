@@ -48,10 +48,50 @@ stt:
     model_version: v3   # v3 = multilingual (25 langs, default), v2 = English-only
 
 tts:
-  engine: pocket_tts
+  engine: pocket_tts    # pocket_tts (default) | avspeech
+
+  # AVSpeech settings (only used when engine: avspeech)
+  # avspeech:
+  #   default_voice: Samantha   # Short name or full identifier; nil = system locale default
+  #   sample_rate: 22050        # Native AVSpeech output rate (Hz)
 ```
 
 All fields are optional — omitted fields use the defaults shown above.
+
+### TTS engines
+
+Two TTS engines are available:
+
+| Engine | `engine:` value | Voices | Downloads | Notes |
+|--------|----------------|--------|-----------|-------|
+| FluidAudio PocketTTS | `pocket_tts` | `alba` only | ~200 MB on first start | Default |
+| macOS AVSpeech | `avspeech` | 150+ system voices | None (ships with macOS) | Instant startup |
+
+#### `pocket_tts` (default)
+
+Uses [FluidAudio](https://github.com/FluidInference/FluidAudio)'s PocketTTS model. Only the `alba` voice is available. Models are downloaded on first start and cached at `~/Library/Application Support/FluidAudio`.
+
+#### `avspeech` — macOS built-in voices
+
+Uses macOS's `AVSpeechSynthesizer` — no model downloads, instant startup, 150+ voices across dozens of languages. Audio is synthesised at 22050 Hz mono (16-bit PCM).
+
+```yaml
+tts:
+  engine: avspeech
+  avspeech:
+    default_voice: Samantha   # Optional — nil uses the system locale default
+```
+
+List all available voices with:
+
+```bash
+say --voice '?'
+```
+
+The short name (e.g. `Samantha`, `Daniel`, `Karen`) is used in API requests. Voice names are case-insensitive; full identifiers (e.g. `com.apple.voice.enhanced.en-US.Samantha`) also work.
+
+> **Note:** Siri voices are not accessible via public AVFoundation APIs and will not appear in the voice list.
+> Personal Voice support (macOS 14+) is planned — see issue #13.
 
 ### Config discovery order
 
@@ -253,11 +293,11 @@ Content-Type: application/json
 |-------------------|--------|----------|---------------------------------------------------|
 | `model`           | String | Yes      | Model name (e.g. `tts-1`)                          |
 | `input`           | String | Yes      | Text to synthesize (max 4096 chars)                |
-| `voice`           | String | No       | Voice name (default: `alba`). Only `alba` is currently supported. |
+| `voice`           | String | No       | Voice name (default: engine default). See [TTS engines](#tts-engines). |
 | `response_format` | String | No       | `wav` (default) or `pcm`                           |
 | `speed`           | Double | No       | Playback speed, 0.25-4.0 (default: 1.0)           |
 
-The response is **streamed**: audio begins arriving before synthesis is complete, sentence by sentence. WAV responses include a standard 44-byte header (with unknown-size placeholders) followed by 16-bit PCM at 24 kHz mono; PCM responses are raw 16-bit bytes.
+The response is **streamed**: audio begins arriving before synthesis is complete, sentence by sentence. WAV responses include a standard 44-byte header (with unknown-size placeholders) followed by 16-bit PCM; PCM responses are raw 16-bit bytes. The sample rate depends on the active TTS engine (24 kHz for `pocket_tts`, 22050 Hz for `avspeech`).
 
 Example:
 
@@ -267,11 +307,11 @@ curl -X POST http://localhost:8080/v1/audio/speech \
   -d '{"model":"tts-1","input":"Hello, world!"}' \
   --output speech.wav
 
-# Explicit voice and PCM output
+# AVSpeech engine with a specific voice
 curl -X POST http://localhost:8080/v1/audio/speech \
   -H "Content-Type: application/json" \
-  -d '{"model":"tts-1","input":"Hello, world!","voice":"alba","response_format":"pcm"}' \
-  --output speech.pcm
+  -d '{"model":"tts-1","input":"Hello, world!","voice":"Samantha"}' \
+  --output speech.wav
 ```
 
 ## Compatible apps
@@ -380,6 +420,8 @@ Sources/speech-server/
     AudioFormatDetection.swift     # Magic-byte audio format detection
     TTSService.swift               # TTS protocol + DI
     FluidTTSService.swift          # FluidAudio PocketTTS implementation (pocket_tts engine)
+    AVSpeechTTSService.swift       # macOS AVSpeechSynthesizer implementation (avspeech engine)
+    PCMConversion.swift            # Shared Float32→Int16 PCM conversion and WAV builder
     SentenceDetection.swift        # Shared sentence splitting for TTS
   Middleware/
     RequestLoggingMiddleware.swift  # Logs method, path, status code
