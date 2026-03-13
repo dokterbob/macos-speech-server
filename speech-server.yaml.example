@@ -26,4 +26,14 @@ stt:
                         # v2 = Parakeet TDT 0.6B v2, English-only (higher recall)
 
 tts:
-  engine: pocket_tts    # Text-to-speech engine. Currently only: pocket_tts
+  engine: pocket_tts    # Text-to-speech engine: pocket_tts | avspeech
+
+  # PocketTTS settings (only used when engine: pocket_tts)
+  pocket_tts:
+    sanitize_emoji: true  # Strip emoji before synthesis (default true)
+
+  # AVSpeech settings (only used when engine: avspeech)
+  # Uses macOS's built-in AVSpeechSynthesizer — no model downloads, 150+ voices.
+  # avspeech:
+  #   default_voice: Samantha   # Short name or full identifier; nil = system locale default
+  #   sample_rate: 22050        # Native AVSpeech output rate (Hz); change only if needed

@@ -3,6 +3,10 @@ import Foundation
 import Logging
 
 final class FluidTTSService: TTSService, @unchecked Sendable {
+    let sampleRate: Int = 24_000
+    var defaultVoice: String { "alba" }
+    var availableVoices: [String] { ["alba"] }
+
     private var pocketTtsManager: PocketTtsManager?
     private var sanitizeEmoji: Bool = true
     private var logger: Logger = {
@@ -93,15 +97,9 @@ final class FluidTTSService: TTSService, @unchecked Sendable {
         detectSentences(text).joined(separator: " ")
     }
 
-    // Convert float32 samples to 16-bit PCM using per-batch peak normalisation.
+    // Convert float32 samples to 16-bit PCM using the shared peak-normalising utility.
     private static func samplesToPCM(_ samples: [Float]) -> Data {
-        let maxVal = samples.map({ abs($0) }).max().flatMap({ $0 > 0 ? $0 : nil }) ?? 1.0
-        var data = Data(capacity: samples.count * 2)
-        for s in samples {
-            let v = Int16(max(-32767.0, min(32767.0, (s / maxVal) * 32767.0))).littleEndian
-            withUnsafeBytes(of: v) { data.append(contentsOf: $0) }
-        }
-        return data
+        float32ToPCM16(samples)
     }
 }
 

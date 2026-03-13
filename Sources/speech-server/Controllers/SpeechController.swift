@@ -27,22 +27,26 @@ struct SpeechController: RouteCollection {
             throw Abort(.badRequest, reason: "'response_format' must be 'wav' or 'pcm'.")
         }
 
-        let voice = speechReq.resolvedVoice
+        let ttsService = req.ttsService
+        let voice = speechReq.voice ?? ttsService.defaultVoice
         // Validate before streaming: once response headers are sent we cannot
         // return a 4xx, so catch invalid voices here rather than inside the stream.
-        guard voice == "alba" else {
-            throw Abort(.badRequest, reason: "Voice '\(voice)' is not available. Supported voices: alba.")
+        let voices = ttsService.availableVoices
+        guard voices.contains(voice) else {
+            let preview = voices.prefix(5).joined(separator: ", ")
+            let suffix = voices.count > 5 ? ", ..." : ""
+            throw Abort(.badRequest, reason: "Voice '\(voice)' is not available. Supported: \(preview)\(suffix).")
         }
 
         let input = speechReq.input
-        let ttsService = req.ttsService
         let allocator = req.byteBufferAllocator
+        let sampleRate = ttsService.sampleRate
 
         let response = Response(status: .ok)
 
         if format == "wav" {
             response.headers.contentType = HTTPMediaType(type: "audio", subType: "wav")
-            let header = Self.streamingWAVHeader()
+            let header = Self.streamingWAVHeader(sampleRate: sampleRate)
             response.body = .init(
                 asyncStream: { writer in
                     do {
