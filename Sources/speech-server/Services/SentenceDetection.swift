@@ -19,7 +19,7 @@ func splitCompleteSentences(_ text: String) -> (complete: [String], remainder: S
 
     var sentences: [String] = []
     tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
-        let s = String(text[range]).trimmingCharacters(in: .whitespaces)
+        let s = String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !s.isEmpty else { return true }
         sentences.append(s)
         return true

@@ -65,6 +65,20 @@ final class SentenceDetectionTests: XCTestCase {
         XCTAssertEqual(remainder, "")
     }
 
+    func testSplitCompleteSentencesParagraphBreak() {
+        // \n\n must not leak a bare "\n" token into the sentence list.
+        let (complete, remainder) = splitCompleteSentences("Hello world.\n\nGoodbye.")
+        XCTAssertEqual(complete, ["Hello world.", "Goodbye."])
+        XCTAssertEqual(remainder, "")
+    }
+
+    func testSplitCompleteSentencesParagraphBreakNoTerminalPunct() {
+        // Text without terminal punctuation around \n\n must still be split cleanly.
+        let (complete, remainder) = splitCompleteSentences("Hello world.\n\nGoodbye")
+        XCTAssertEqual(complete, ["Hello world."])
+        XCTAssertEqual(remainder, "Goodbye")
+    }
+
     // MARK: - splitSentences
 
     func testSplitSentencesNoPunctuation() {
