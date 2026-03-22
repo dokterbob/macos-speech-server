@@ -75,7 +75,7 @@ final class AVSpeechTTSService: TTSService, Sendable {
         }
 
         var allSamples: [Float] = []
-        for sentence in detectSentences(text) {
+        for sentence in splitSentences(text) {
             let samples = try await synthesizeFloatSamples(
                 text: sentence, voiceIdentifier: identifier)
             allSamples.append(contentsOf: samples)
@@ -102,7 +102,7 @@ final class AVSpeechTTSService: TTSService, Sendable {
             }
         }
 
-        let sentences = detectSentences(text)
+        let sentences = splitSentences(text)
         logger.notice("AVSpeech synthesizeStream: \(sentences.count) sentence(s)")
 
         return AsyncThrowingStream { continuation in

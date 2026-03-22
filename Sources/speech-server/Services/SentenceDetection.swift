@@ -38,6 +38,26 @@ func splitCompleteSentences(_ text: String) -> (complete: [String], remainder: S
     }
 }
 
+/// Split text into sentences without modifying punctuation.
+///
+/// Unlike `detectSentences()`, the trailing fragment is returned as-is — no period is appended.
+/// Use this for engines (e.g. AVSpeechSynthesizer) that handle unterminated text natively and
+/// would vocalize an appended period as "full stop".
+///
+/// Examples:
+/// - `"Hello world"` → `["Hello world"]`
+/// - `"Hello world."` → `["Hello world."]`
+/// - `"Hello. World"` → `["Hello.", "World"]`
+/// - `""` → `[]`
+func splitSentences(_ text: String) -> [String] {
+    let (complete, remainder) = splitCompleteSentences(text)
+    var result = complete
+    if !remainder.isEmpty {
+        result.append(remainder)
+    }
+    return result
+}
+
 /// Split text into sentences, ensuring every one ends with terminal punctuation.
 ///
 /// This is a convenience wrapper over `splitCompleteSentences`: the incomplete remainder

@@ -64,4 +64,39 @@ final class SentenceDetectionTests: XCTestCase {
         XCTAssertEqual(complete, [])
         XCTAssertEqual(remainder, "")
     }
+
+    // MARK: - splitSentences
+
+    func testSplitSentencesNoPunctuation() {
+        // Text without terminal punctuation must be returned as-is — no period appended.
+        let result = splitSentences("Hello world")
+        XCTAssertEqual(result, ["Hello world"])
+    }
+
+    func testSplitSentencesWithPeriod() {
+        XCTAssertEqual(splitSentences("Hello world."), ["Hello world."])
+    }
+
+    func testSplitSentencesWithQuestionMark() {
+        XCTAssertEqual(splitSentences("Who are you?"), ["Who are you?"])
+    }
+
+    func testSplitSentencesMultipleComplete() {
+        XCTAssertEqual(splitSentences("Hello. World!"), ["Hello.", "World!"])
+    }
+
+    func testSplitSentencesMixedCompleteAndRemainder() {
+        let result = splitSentences("Hello world. This is")
+        XCTAssertEqual(result, ["Hello world.", "This is"])
+    }
+
+    func testSplitSentencesEmpty() {
+        XCTAssertEqual(splitSentences(""), [])
+    }
+
+    func testSplitSentencesRemainderNotModified() {
+        // Unlike detectSentences, the remainder must NOT have a period appended.
+        let result = splitSentences("One. Two")
+        XCTAssertEqual(result.last, "Two")
+    }
 }
