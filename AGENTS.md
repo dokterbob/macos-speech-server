@@ -7,14 +7,14 @@ Essential knowledge for AI agents working on this codebase.
 A macOS-native HTTP server that exposes OpenAI-compatible speech API endpoints and a Wyoming protocol server for Home Assistant integration, running entirely on-device. Built with Vapor (Swift web framework) and FluidAudio (on-device ASR via Apple's Neural Engine).
 
 - **STT** is fully implemented using FluidAudio's `AsrManager`.
-- **TTS** is fully implemented using FluidAudio's `PocketTtsManager`. Only the `alba` voice is available; requesting any other voice returns a 400.
+- **TTS** is fully implemented with three engines: `pocket_tts` (FluidAudio PocketTTS, `alba` only), `avspeech` (macOS built-in, 150+ voices), and `kokoro` (FluidAudio Kokoro, 50 voices across 8 languages).
 
 ## Tech stack
 
 | Component | Library | Version constraint |
 |-----------|---------|-------------------|
 | Web framework | [Vapor](https://github.com/vapor/vapor) | 4.76.0+ |
-| Speech-to-text | [FluidAudio](https://github.com/FluidInference/FluidAudio) | 0.7.9+ |
+| Speech-to-text / TTS | [FluidAudio](https://github.com/FluidInference/FluidAudio) | 0.12.4+ |
 | Multipart parsing | [multipart-kit](https://github.com/vapor/multipart-kit) | 4.0.0+ |
 | YAML parsing | [Yams](https://github.com/jpsim/Yams) | 6.0.1+ |
 | TCP networking | [swift-nio](https://github.com/apple/swift-nio) | 2.65.0+ |
@@ -64,7 +64,7 @@ ServerConfig
   │   ├─ http: HTTPConfig          (host, port, uploadLimitMB)
   │   └─ wyoming: WyomingConfig    (host, port)
   ├─ stt: STTConfig                (engine, parakeet settings)
-  └─ tts: TTSConfig                (engine, pocket_tts settings)
+  └─ tts: TTSConfig                (engine, pocket_tts/avspeech/kokoro settings)
 ```
 
 Access: `config.logLevel`, `config.servers.http.host`, `config.servers.wyoming.port`.
@@ -205,9 +205,25 @@ support requires `requestPersonalVoiceAuthorization` and is tracked in issue #13
 cannot be resolved via lookup. `AVSpeechTTSError.noAudioProduced` is thrown if the synthesiser
 delivers zero samples (e.g. empty utterance after preprocessing).
 
+### KokoroTTSService
+
+`KokoroTTSService` wraps FluidAudio's `KokoroTtsManager` (50 voices, 8 languages, 24 kHz):
+
+1. On init (`initialize(settings:)`): creates `KokoroTtsManager(defaultVoice:)`, calls `manager.initialize()` (downloads Kokoro CoreML models on first run, cached at `~/.cache/fluidaudio/Models/kokoro`), sets `defaultVoice` from settings or `TtsConstants.recommendedVoice` (`"af_heart"`).
+2. On synthesize (`synthesize`): validates voice against `availableVoices`, calls `manager.synthesize()` which returns WAV data directly (no manual PCM conversion needed).
+3. On streaming (`synthesizeStream`): validates voice first (returns stream that immediately throws on invalid voice), splits text into sentences with `detectSentences()`, calls `manager.synthesizeDetailed()` per sentence, collects all samples from `result.chunks.flatMap { $0.samples }`, converts via `float32ToPCM16()`, yields one PCM chunk per sentence.
+4. Must call `initialize()` before first use — will throw `KokoroTTSError.notInitialized` otherwise.
+5. `@unchecked Sendable` because `KokoroTtsManager` is not `Sendable`. All stored properties besides the manager are immutable.
+
+**Voice list**: `TtsConstants.availableVoices` (50 voices, sorted alphabetically in `availableVoices` property). American English voices (`af_*`, `am_*`) are production quality; other languages are experimental.
+
+**`manager.synthesize()` returns WAV directly**: unlike PocketTTS which returns raw samples via `synthesizeDetailed().samples`, `KokoroTtsManager.synthesize()` returns a complete WAV `Data`. For streaming, `synthesizeDetailed()` returns a `KokoroSynthesizer.SynthesisResult` with `chunks: [ChunkInfo]`, each with `samples: [Float]`.
+
+**Errors**: `KokoroTTSError.notInitialized` and `KokoroTTSError.voiceNotFound(String)`.
+
 ### PCMConversion utilities
 
-`PCMConversion.swift` provides two package-internal free functions shared by both TTS services:
+`PCMConversion.swift` provides two package-internal free functions shared by all TTS services:
 
 - `float32ToPCM16(_ samples: [Float]) -> Data` — peak-normalises the sample batch (or uses
   1.0 if all samples are silent) and converts to little-endian Int16 PCM bytes.
@@ -219,8 +235,8 @@ delivers zero samples (e.g. empty utterance after preprocessing).
 The protocol (`TTSService.swift`) now includes three additional requirements read by controllers:
 
 ```swift
-var sampleRate: Int { get }        // e.g. 24_000 (FluidTTS) or 22_050 (AVSpeech)
-var defaultVoice: String { get }   // e.g. "alba" or "Samantha"
+var sampleRate: Int { get }        // e.g. 24_000 (FluidTTS/Kokoro) or 22_050 (AVSpeech)
+var defaultVoice: String { get }   // e.g. "alba", "Samantha", or "af_heart"
 var availableVoices: [String] { get } // sorted list of short names
 ```
 
@@ -295,6 +311,8 @@ Both `http.host` and `wyoming.host` are independently configurable — they do n
 | `AVSpeechConfigTests.swift` | YAML parsing for `avspeech` engine and `AVSpeechSettings` | No |
 | `PCMConversionTests.swift` | `float32ToPCM16` and `makeWAV` utilities | No |
 | `AVSpeechTTSServiceTests.swift` | Real `AVSpeechTTSService` (uses macOS system voices) | No |
+| `KokoroConfigTests.swift` | YAML parsing for `kokoro` engine and `KokoroSettings` | No |
+| `KokoroTTSServiceTests.swift` | Real `KokoroTTSService` (Kokoro CoreML models) | Yes |
 | `Helpers/MockServices.swift` | `MockTTSService` + `MockSTTService` for session tests | No |
 
 ### Error handling
@@ -376,6 +394,8 @@ swift test --filter ServerConfig  # run a specific test class
 | `AVSpeechConfigTests.swift` | Unit | YAML parsing for `avspeech` engine and `AVSpeechSettings` — no models needed |
 | `PCMConversionTests.swift` | Unit | `float32ToPCM16` and `makeWAV` — no models needed |
 | `AVSpeechTTSServiceTests.swift` | Unit | Real `AVSpeechTTSService` using macOS system voices — no models needed |
+| `KokoroConfigTests.swift` | Unit | YAML parsing for `kokoro` engine and `KokoroSettings` — no models needed |
+| `KokoroTTSServiceTests.swift` | Integration | Real `KokoroTTSService` with Kokoro CoreML models |
 | `Helpers/MockServices.swift` | Helper | MockTTSService + MockSTTService |
 
 **First run**: integration tests load real FluidAudio models (STT + TTS). Model download takes several minutes; subsequent runs use the on-disk cache and start in seconds. The shared app singleton (`_appTask` in `TestApp.swift`) ensures models are initialized once per `swift test` invocation.
@@ -387,7 +407,7 @@ swift test --filter ServerConfig  # run a specific test class
 `.github/workflows/tests.yml` runs on every push and PR to `main`.
 
 - **Runner**: `macos-15` with Swift 6.2 installed via `swift-actions/setup-swift@v2`.
-- **Cache**: `.build` and `~/Library/Application Support/FluidAudio` (all model subdirectories) are cached by `actions/cache@v4` keyed on `Package.resolved`. A `restore-keys` fallback allows partial hits (models survive SPM-only changes).
+- **Cache**: `.build`, `~/Library/Application Support/FluidAudio` (PocketTTS/ASR models), and `~/.cache/fluidaudio` (Kokoro models) are cached by `actions/cache@v4` keyed on `Package.resolved`. A `restore-keys` fallback allows partial hits (models survive SPM-only changes).
 - **Steps**: checkout → setup Swift → restore cache → `swift build --build-tests` → `swift test` (30 min timeout).
 - **Concurrency**: redundant runs on rapid pushes are cancelled via `concurrency.cancel-in-progress: true`.
 - **Cold-cache run**: model download + SPM compilation takes ~10-20 min. Warm-cache run: ~1-2 min.

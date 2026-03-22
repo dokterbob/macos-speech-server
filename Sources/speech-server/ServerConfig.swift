@@ -160,11 +160,13 @@ struct TTSConfig: Codable, Sendable {
     var engine: TTSEngine
     var pocketTts: PocketTtsSettings?
     var avspeech: AVSpeechSettings?
+    var kokoro: KokoroSettings?
 
     init() {
         engine = .pocketTts
         pocketTts = nil
         avspeech = nil
+        kokoro = nil
     }
 
     init(from decoder: any Decoder) throws {
@@ -172,18 +174,21 @@ struct TTSConfig: Codable, Sendable {
         engine = try c.decodeIfPresent(TTSEngine.self, forKey: .engine) ?? .pocketTts
         pocketTts = try c.decodeIfPresent(PocketTtsSettings.self, forKey: .pocketTts)
         avspeech = try c.decodeIfPresent(AVSpeechSettings.self, forKey: .avspeech)
+        kokoro = try c.decodeIfPresent(KokoroSettings.self, forKey: .kokoro)
     }
 
     enum CodingKeys: String, CodingKey {
         case engine
         case pocketTts = "pocket_tts"
         case avspeech = "avspeech"
+        case kokoro = "kokoro"
     }
 }
 
 enum TTSEngine: String, Codable, Sendable {
     case pocketTts = "pocket_tts"
     case avspeech = "avspeech"
+    case kokoro = "kokoro"
 }
 
 struct PocketTtsSettings: Codable, Sendable {
@@ -225,6 +230,25 @@ struct AVSpeechSettings: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case defaultVoice = "default_voice"
         case sampleRate = "sample_rate"
+    }
+}
+
+struct KokoroSettings: Codable, Sendable {
+    /// Default voice identifier for Kokoro synthesis.
+    /// Nil = use the FluidAudio recommended voice ("af_heart").
+    var defaultVoice: String?
+
+    init() {
+        defaultVoice = nil
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        defaultVoice = try c.decodeIfPresent(String.self, forKey: .defaultVoice)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case defaultVoice = "default_voice"
     }
 }
 

@@ -48,24 +48,29 @@ stt:
     model_version: v3   # v3 = multilingual (25 langs, default), v2 = English-only
 
 tts:
-  engine: pocket_tts    # pocket_tts (default) | avspeech
+  engine: pocket_tts    # pocket_tts (default) | avspeech | kokoro
 
   # AVSpeech settings (only used when engine: avspeech)
   # avspeech:
   #   default_voice: Samantha   # Short name or full identifier; nil = system locale default
   #   sample_rate: 22050        # Native AVSpeech output rate (Hz)
+
+  # Kokoro TTS settings (only used when engine: kokoro)
+  # kokoro:
+  #   default_voice: af_heart   # Any Kokoro voice ID (e.g. af_heart, am_adam); default af_heart
 ```
 
 All fields are optional — omitted fields use the defaults shown above.
 
 ### TTS engines
 
-Two TTS engines are available:
+Three TTS engines are available:
 
-| Engine | `engine:` value | Voices | Downloads | Notes |
-|--------|----------------|--------|-----------|-------|
-| FluidAudio PocketTTS | `pocket_tts` | `alba` only | ~200 MB on first start | Default |
-| macOS AVSpeech | `avspeech` | 150+ system voices | None (ships with macOS) | Instant startup |
+| Engine | `engine:` value | Voices | Sample rate | Downloads | Notes |
+|--------|----------------|--------|-------------|-----------|-------|
+| FluidAudio PocketTTS | `pocket_tts` | `alba` only | 24 kHz | ~200 MB on first start | Default |
+| macOS AVSpeech | `avspeech` | 150+ system voices | 22050 Hz | None (ships with macOS) | Instant startup |
+| FluidAudio Kokoro | `kokoro` | 50 voices, 8 languages | 24 kHz | ~300 MB on first start | High quality |
 
 #### `pocket_tts` (default)
 
@@ -92,6 +97,21 @@ The short name (e.g. `Samantha`, `Daniel`, `Karen`) is used in API requests. Voi
 
 > **Note:** Siri voices are not accessible via public AVFoundation APIs and will not appear in the voice list.
 > Personal Voice support (macOS 14+) is planned — see issue #13.
+
+#### `kokoro` — FluidAudio Kokoro
+
+Uses [FluidAudio](https://github.com/FluidInference/FluidAudio)'s Kokoro CoreML model. 50 voices across 8 languages (American English, British English, Spanish, French, Hindi, Italian, Japanese, Brazilian Portuguese, Mandarin Chinese), synthesised at 24 kHz. Models are downloaded on first start and cached at `~/.cache/fluidaudio/Models/kokoro`.
+
+```yaml
+tts:
+  engine: kokoro
+  kokoro:
+    default_voice: af_heart   # Optional — default is af_heart (American English female)
+```
+
+American English voices (production-quality): `af_alloy`, `af_aoede`, `af_bella`, `af_heart`, `af_jessica`, `af_kore`, `af_nicole`, `af_nova`, `af_river`, `af_sarah`, `af_sky`, `am_adam`, `am_echo`, `am_eric`, `am_fenrir`, `am_liam`, `am_michael`, `am_onyx`, `am_puck`, `am_santa`.
+
+Other language voices are experimental (not QA'd). Full voice list: use `/v1/audio/speech` with an invalid voice to see the available options listed in the error message, or query `GET /v1/models` via your client library.
 
 ### Config discovery order
 
@@ -297,7 +317,7 @@ Content-Type: application/json
 | `response_format` | String | No       | `wav` (default) or `pcm`                           |
 | `speed`           | Double | No       | Playback speed, 0.25-4.0 (default: 1.0)           |
 
-The response is **streamed**: audio begins arriving before synthesis is complete, sentence by sentence. WAV responses include a standard 44-byte header (with unknown-size placeholders) followed by 16-bit PCM; PCM responses are raw 16-bit bytes. The sample rate depends on the active TTS engine (24 kHz for `pocket_tts`, 22050 Hz for `avspeech`).
+The response is **streamed**: audio begins arriving before synthesis is complete, sentence by sentence. WAV responses include a standard 44-byte header (with unknown-size placeholders) followed by 16-bit PCM; PCM responses are raw 16-bit bytes. The sample rate depends on the active TTS engine (24 kHz for `pocket_tts` and `kokoro`, 22050 Hz for `avspeech`).
 
 Example:
 
@@ -421,6 +441,7 @@ Sources/speech-server/
     TTSService.swift               # TTS protocol + DI
     FluidTTSService.swift          # FluidAudio PocketTTS implementation (pocket_tts engine)
     AVSpeechTTSService.swift       # macOS AVSpeechSynthesizer implementation (avspeech engine)
+    KokoroTTSService.swift         # FluidAudio Kokoro implementation (kokoro engine)
     PCMConversion.swift            # Shared Float32→Int16 PCM conversion and WAV builder
     SentenceDetection.swift        # Shared sentence splitting for TTS
   Middleware/

@@ -52,6 +52,14 @@ func configure(_ app: Application) async throws {
         app.logger.notice(
             "AVSpeech TTS ready (\(ttsService.availableVoices.count) voices, default: \(ttsService.defaultVoice))."
         )
+    case .kokoro:
+        let ttsService = KokoroTTSService()
+        app.logger.info("Loading Kokoro TTS models (first run will download)...")
+        try await ttsService.initialize(settings: config.tts.kokoro ?? KokoroSettings())
+        app.ttsService = ttsService
+        app.logger.notice(
+            "Kokoro TTS ready (\(ttsService.availableVoices.count) voices, default: \(ttsService.defaultVoice))."
+        )
     }
 
     // STT engine selection

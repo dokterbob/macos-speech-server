@@ -26,7 +26,7 @@ stt:
                         # v2 = Parakeet TDT 0.6B v2, English-only (higher recall)
 
 tts:
-  engine: pocket_tts    # Text-to-speech engine: pocket_tts | avspeech
+  engine: pocket_tts    # Text-to-speech engine: pocket_tts | avspeech | kokoro
 
   # PocketTTS settings (only used when engine: pocket_tts)
   pocket_tts:
@@ -37,3 +37,8 @@ tts:
   # avspeech:
   #   default_voice: Samantha   # Short name or full identifier; nil = system locale default
   #   sample_rate: 22050        # Native AVSpeech output rate (Hz); change only if needed
+
+  # Kokoro TTS settings (only used when engine: kokoro)
+  # Uses FluidAudio's Kokoro model — 50 voices across 8 languages, 24 kHz, high quality.
+  # kokoro:
+  #   default_voice: af_heart   # Any Kokoro voice ID (e.g. af_heart, am_adam); default af_heart
