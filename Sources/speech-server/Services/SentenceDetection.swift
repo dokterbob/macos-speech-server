@@ -19,7 +19,7 @@ func splitCompleteSentences(_ text: String) -> (complete: [String], remainder: S
 
     var sentences: [String] = []
     tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
-        let s = String(text[range]).trimmingCharacters(in: .whitespaces)
+        let s = String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !s.isEmpty else { return true }
         sentences.append(s)
         return true
@@ -36,6 +36,26 @@ func splitCompleteSentences(_ text: String) -> (complete: [String], remainder: S
         // Last sentence is an incomplete fragment
         return (Array(sentences.dropLast()), last)
     }
+}
+
+/// Split text into sentences without modifying punctuation.
+///
+/// Unlike `detectSentences()`, the trailing fragment is returned as-is — no period is appended.
+/// Use this for engines (e.g. AVSpeechSynthesizer) that handle unterminated text natively and
+/// would vocalize an appended period as "full stop".
+///
+/// Examples:
+/// - `"Hello world"` → `["Hello world"]`
+/// - `"Hello world."` → `["Hello world."]`
+/// - `"Hello. World"` → `["Hello.", "World"]`
+/// - `""` → `[]`
+func splitSentences(_ text: String) -> [String] {
+    let (complete, remainder) = splitCompleteSentences(text)
+    var result = complete
+    if !remainder.isEmpty {
+        result.append(remainder)
+    }
+    return result
 }
 
 /// Split text into sentences, ensuring every one ends with terminal punctuation.

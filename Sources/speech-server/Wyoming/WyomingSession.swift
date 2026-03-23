@@ -110,10 +110,7 @@ actor WyomingSession {
             return AsyncStream { continuation in
                 Task {
                     if !remainingText.isEmpty {
-                        // Ensure terminal punctuation before synthesizing the final fragment
-                        var text = remainingText
-                        if let last = text.last, !".!?".contains(last) { text += "." }
-                        await self.streamSentences([text], voice: voice, continuation: continuation)
+                        await self.streamSentences([remainingText], voice: voice, continuation: continuation)
                     }
                     continuation.yield(WyomingEvent(type: "synthesize-stopped").serialize())
                     continuation.finish()
