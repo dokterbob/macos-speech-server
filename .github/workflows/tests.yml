@@ -25,6 +25,7 @@ jobs:
           path: |
             .build
             ~/Library/Application Support/FluidAudio
+            ~/.cache/fluidaudio
           key: ${{ runner.os }}-spm-${{ hashFiles('Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-spm-
