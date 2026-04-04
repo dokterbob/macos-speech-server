@@ -63,7 +63,7 @@ ServerConfig
   ├─ servers: ServersConfig
   │   ├─ http: HTTPConfig          (host, port, uploadLimitMB)
   │   └─ wyoming: WyomingConfig    (host, port)
-  ├─ stt: STTConfig                (engine, parakeet settings)
+  ├─ stt: STTConfig                (engine, parakeet/qwen3 settings)
   └─ tts: TTSConfig                (engine, pocket_tts/avspeech/kokoro settings)
 ```
 
@@ -136,6 +136,24 @@ multipart parsing, keeping peak RAM at O(chunk_size) during upload:
   Zero-padding the tail is safe -- the model handles trailing silence natively.
 
 Use `source: .system` for file/API transcription, `source: .microphone` for live capture.
+
+### Qwen3STTService
+
+`Qwen3STTService` wraps FluidAudio's `Qwen3AsrManager` (encoder-decoder ASR, 30+ languages):
+
+1. On init: takes optional `language` hint (ISO 639-1 code, e.g. `"en"`).
+2. On initialize: downloads Qwen3 CoreML models via `Qwen3AsrModels.download(variant:)` (cached at `~/Library/Application Support/FluidAudio/Models/`), creates `Qwen3AsrManager()`, calls `manager.loadModels(from:)`.
+3. On transcribe: converts audio to 16 kHz mono via `DiskBackedAudioSampleSource`, runs VAD to find speech segments (same as `FluidSTTService`), calls `manager.transcribe(audioSamples:language:)` on each segment. The 30-second max audio limit is enforced per segment.
+4. Returns `TranscriptionResult` with segment-level timing from VAD but **no word-level timestamps** (Qwen3 returns plain text).
+5. Must call `initialize()` before first use — will throw `Qwen3STTError.notInitialized` otherwise.
+6. `@available(macOS 15, *)` — requires macOS 15+ for CoreML features used by Qwen3.
+7. `@unchecked Sendable` because `Qwen3AsrManager` is an actor.
+
+**Language hinting**: Unlike Parakeet (which auto-detects language with no way to override), Qwen3 accepts an explicit `language` parameter. Setting `language: "en"` forces English decoding, which can improve accuracy for non-American English accents (e.g. British English) by preventing the multilingual model from misinterpreting accent features as other languages.
+
+**Model variants**: `Qwen3AsrVariant.int8` (~900 MB, default) and `.f32` (~1.75 GB). Configured via `variant` in YAML.
+
+**Errors**: `Qwen3STTError.notInitialized`, `Qwen3STTError.audioConversionFailed(Error)`, `Qwen3STTError.audioTooShort`, `Qwen3STTError.unsupportedPlatform`.
 
 ### FluidTTSService
 
@@ -281,7 +299,7 @@ recording ──audio-stop──→ [call STTService.transcribe, send transcript
 any state ──describe──→ [send info with both asr + tts capabilities] (state unchanged)
 ```
 
-The `info` response advertises both `asr` and `tts` arrays so Home Assistant knows this single port handles both services. The TTS program includes `supports_synthesize_streaming: true` to advertise HA 2025.07+ streaming support.
+The `info` response advertises both `asr` and `tts` arrays so Home Assistant knows this single port handles both services. The TTS program includes `supports_synthesize_streaming: true` to advertise HA 2025.07+ streaming support. ASR model name and language list are driven by `STTInfo` (passed through `WyomingServer` → `WyomingSession`), with static presets `.parakeet` and `.qwen3`.
 
 **Streaming TTS**: `handle(event:)` returns `AsyncStream<Data>` (non-async). For `synthesize`, the stream yields `audio-start` + each `audio-chunk` + `audio-stop` incrementally as TTS chunks arrive — `audio-start` is withheld until the first chunk so a completely failed synthesis sends nothing. State mutations (e.g. `state = .awaitingAudio`) happen synchronously before the stream is returned, so callers can immediately make the next `handle` call without draining the stream first. All other event types pre-fill the stream synchronously and finish immediately.
 
@@ -313,6 +331,7 @@ Both `http.host` and `wyoming.host` are independently configurable — they do n
 | `AVSpeechTTSServiceTests.swift` | Real `AVSpeechTTSService` (uses macOS system voices) | No |
 | `KokoroConfigTests.swift` | YAML parsing for `kokoro` engine and `KokoroSettings` | No |
 | `KokoroTTSServiceTests.swift` | Real `KokoroTTSService` (Kokoro CoreML models) | Yes |
+| `Qwen3ConfigTests.swift` | YAML parsing for `qwen3` engine and `Qwen3STTSettings` | No |
 | `Helpers/MockServices.swift` | `MockTTSService` + `MockSTTService` for session tests | No |
 
 ### Error handling
@@ -396,6 +415,7 @@ swift test --filter ServerConfig  # run a specific test class
 | `AVSpeechTTSServiceTests.swift` | Unit | Real `AVSpeechTTSService` using macOS system voices — no models needed |
 | `KokoroConfigTests.swift` | Unit | YAML parsing for `kokoro` engine and `KokoroSettings` — no models needed |
 | `KokoroTTSServiceTests.swift` | Integration | Real `KokoroTTSService` with Kokoro CoreML models |
+| `Qwen3ConfigTests.swift` | Unit | YAML parsing for `qwen3` engine and `Qwen3STTSettings` — no models needed |
 | `Helpers/MockServices.swift` | Helper | MockTTSService + MockSTTService |
 
 **First run**: integration tests load real FluidAudio models (STT + TTS). Model download takes several minutes; subsequent runs use the on-disk cache and start in seconds. The shared app singleton (`_appTask` in `TestApp.swift`) ensures models are initialized once per `swift test` invocation.

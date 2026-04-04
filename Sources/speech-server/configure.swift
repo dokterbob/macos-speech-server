@@ -80,6 +80,28 @@ func configure(_ app: Application) async throws {
         try await sttService.initialize(modelVersion: modelVersion)
         app.sttService = sttService
         app.logger.info("ASR models loaded. Server ready.")
+    case .qwen3:
+        guard #available(macOS 15, *) else {
+            throw Abort(.internalServerError, reason: "Qwen3 ASR requires macOS 15 or later.")
+        }
+        let settings = config.stt.qwen3 ?? Qwen3STTSettings()
+        let variantStr = settings.variant
+        let variant: Qwen3AsrVariant =
+            switch variantStr {
+            case "int8": .int8
+            case "f32": .f32
+            default:
+                throw Abort(
+                    .internalServerError,
+                    reason: "Unknown Qwen3 variant '\(variantStr)'; valid values are 'int8' and 'f32'.")
+            }
+        let langDesc = settings.language.map { "language=\($0)" } ?? "auto-detect"
+        app.logger.info(
+            "Loading ASR models (Qwen3 \(variantStr), \(langDesc), first run will download ~minutes)...")
+        let sttService = Qwen3STTService(language: settings.language)
+        try await sttService.initialize(variant: variant)
+        app.sttService = sttService
+        app.logger.info("Qwen3 ASR models loaded. Server ready.")
     }
 
     // Wyoming TCP server (default port 10300; set wyoming.port: 0 or WYOMING_PORT=0 to disable)
@@ -97,12 +119,14 @@ func configure(_ app: Application) async throws {
     else {
         wyomingPort = config.servers.wyoming.port
     }
+    let sttInfo: STTInfo = config.stt.engine == .qwen3 ? .qwen3 : .parakeet
     if wyomingPort > 0 && app.environment != .testing {
         let wyomingServer = WyomingServer(
             host: wyomingHost,
             port: wyomingPort,
             ttsService: app.ttsService,
             sttService: app.sttService,
+            sttInfo: sttInfo,
             logger: app.logger
         )
         app.lifecycle.use(wyomingServer)

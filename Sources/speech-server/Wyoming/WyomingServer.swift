@@ -15,27 +15,37 @@ final class WyomingServer: LifecycleHandler, @unchecked Sendable {
     private let port: Int
     private let ttsService: any TTSService
     private let sttService: any STTService
+    private let sttInfo: STTInfo
     private let logger: Logger
     private var serverChannel: (any Channel)?
 
-    init(host: String, port: Int, ttsService: any TTSService, sttService: any STTService, logger: Logger) {
+    init(
+        host: String,
+        port: Int,
+        ttsService: any TTSService,
+        sttService: any STTService,
+        sttInfo: STTInfo = .parakeet,
+        logger: Logger
+    ) {
         self.host = host
         self.port = port
         self.ttsService = ttsService
         self.sttService = sttService
+        self.sttInfo = sttInfo
         self.logger = logger
     }
 
     func didBoot(_ application: Application) throws {
         let tts = ttsService
         let stt = sttService
+        let info = sttInfo
         let log = logger
 
         let bootstrap = ServerBootstrap(group: application.eventLoopGroup)
             .serverChannelOption(ChannelOptions.backlog, value: 256)
             .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
-                let session = WyomingSession(ttsService: tts, sttService: stt, logger: log)
+                let session = WyomingSession(ttsService: tts, sttService: stt, sttInfo: info, logger: log)
                 let handler = WyomingChannelHandler(session: session, logger: log)
                 return channel.pipeline.addHandler(handler)
             }

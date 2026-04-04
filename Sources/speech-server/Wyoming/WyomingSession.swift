@@ -16,9 +16,33 @@ import Logging
 /// recording ──audio-stop──→ [call STTService.transcribe, send transcript] ──→ idle
 /// any state ──describe──→ [send info with both asr + tts capabilities] (state unchanged)
 /// ```
+/// Metadata about the active STT engine, used in the Wyoming `info` response.
+struct STTInfo: Sendable {
+    let modelName: String
+    let modelDescription: String
+    let languages: [String]
+
+    static let parakeet = STTInfo(
+        modelName: "parakeet-tdt-0.6b",
+        modelDescription: "Parakeet TDT 0.6B on-device ASR via FluidAudio",
+        languages: ["en"]
+    )
+
+    static let qwen3 = STTInfo(
+        modelName: "qwen3-asr",
+        modelDescription: "Qwen3 ASR on-device speech recognition via FluidAudio",
+        languages: [
+            "zh", "en", "yue", "ar", "de", "fr", "es", "pt", "id", "it",
+            "ko", "ru", "th", "vi", "ja", "tr", "hi", "ms", "nl", "sv",
+            "da", "fi", "pl", "cs", "fil", "fa", "el", "hu", "mk", "ro",
+        ]
+    )
+}
+
 actor WyomingSession {
     private let ttsService: any TTSService
     private let sttService: any STTService
+    private let sttInfo: STTInfo
     private var state: State = .idle
     private let logger: Logger
 
@@ -29,9 +53,15 @@ actor WyomingSession {
         case streamingSynthesize(voice: String, textBuffer: String)
     }
 
-    init(ttsService: any TTSService, sttService: any STTService, logger: Logger = Logger(label: "WyomingSession")) {
+    init(
+        ttsService: any TTSService,
+        sttService: any STTService,
+        sttInfo: STTInfo = .parakeet,
+        logger: Logger = Logger(label: "WyomingSession")
+    ) {
         self.ttsService = ttsService
         self.sttService = sttService
+        self.sttInfo = sttInfo
         self.logger = logger
     }
 
@@ -328,12 +358,12 @@ actor WyomingSession {
         // Two-level ASR hierarchy: AsrProgram → models: [AsrModel]
         // languages lives on AsrModel, not on AsrProgram
         let asrModel = WyomingValue.object([
-            "name": .string("parakeet-tdt-0.6b"),
-            "description": .string("Parakeet TDT 0.6B on-device ASR via FluidAudio"),
+            "name": .string(sttInfo.modelName),
+            "description": .string(sttInfo.modelDescription),
             "attribution": asrAttribution,
             "installed": .bool(true),
             "version": .string("1.0.0"),
-            "languages": .array([.string("en")]),
+            "languages": .array(sttInfo.languages.map { .string($0) }),
         ])
 
         let asrProgram = WyomingValue.object([

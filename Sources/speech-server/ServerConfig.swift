@@ -115,26 +115,31 @@ struct HTTPConfig: Codable, Sendable {
 struct STTConfig: Codable, Sendable {
     var engine: STTEngine
     var parakeet: ParakeetSettings?
+    var qwen3: Qwen3STTSettings?
 
     init() {
         engine = .parakeet
         parakeet = nil
+        qwen3 = nil
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         engine = try c.decodeIfPresent(STTEngine.self, forKey: .engine) ?? .parakeet
         parakeet = try c.decodeIfPresent(ParakeetSettings.self, forKey: .parakeet)
+        qwen3 = try c.decodeIfPresent(Qwen3STTSettings.self, forKey: .qwen3)
     }
 
     enum CodingKeys: String, CodingKey {
         case engine
         case parakeet = "parakeet"
+        case qwen3 = "qwen3"
     }
 }
 
 enum STTEngine: String, Codable, Sendable {
     case parakeet = "parakeet"
+    case qwen3 = "qwen3"
 }
 
 struct ParakeetSettings: Codable, Sendable {
@@ -151,6 +156,30 @@ struct ParakeetSettings: Codable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case modelVersion = "model_version"
+    }
+}
+
+struct Qwen3STTSettings: Codable, Sendable {
+    /// Model variant. "int8" = quantized (~900 MB, default), "f32" = full precision (~1.75 GB).
+    var variant: String
+    /// Language hint for transcription (ISO 639-1 code, e.g. "en", "fr").
+    /// Nil = auto-detect language from audio.
+    var language: String?
+
+    init() {
+        variant = "int8"
+        language = nil
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        variant = try c.decodeIfPresent(String.self, forKey: .variant) ?? "int8"
+        language = try c.decodeIfPresent(String.self, forKey: .language)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case variant
+        case language
     }
 }
 

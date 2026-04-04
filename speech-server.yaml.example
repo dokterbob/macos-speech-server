@@ -20,10 +20,17 @@ servers:
     port: 10300           # TCP port for Wyoming protocol (Home Assistant). 0 = disabled; override with WYOMING_PORT env var.
 
 stt:
-  engine: parakeet      # Speech-to-text engine. Currently only: parakeet
+  engine: parakeet      # Speech-to-text engine: parakeet | qwen3
   parakeet:
     model_version: v3   # v3 = Parakeet TDT 0.6B v3, multilingual (25 langs, default)
                         # v2 = Parakeet TDT 0.6B v2, English-only (higher recall)
+
+  # Qwen3 ASR settings (only used when engine: qwen3)
+  # Uses FluidAudio's Qwen3AsrManager — encoder-decoder model with explicit language hinting.
+  # Requires macOS 15+.
+  # qwen3:
+  #   variant: int8     # int8 = quantized ~900 MB (default); f32 = full precision ~1.75 GB
+  #   language: en      # ISO 639-1 code (e.g. en, fr, de); omit for auto-detect
 
 tts:
   engine: pocket_tts    # Text-to-speech engine: pocket_tts | avspeech | kokoro
