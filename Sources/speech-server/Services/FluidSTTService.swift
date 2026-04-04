@@ -14,7 +14,7 @@ final class FluidSTTService: STTService, @unchecked Sendable {
     func initialize(modelVersion: AsrModelVersion = .v3) async throws {
         let models = try await AsrModels.downloadAndLoad(version: modelVersion)
         let manager = AsrManager(config: .default)
-        try await manager.initialize(models: models)
+        try await manager.loadModels(models)
         self.asrManager = manager
         self.vadManager = try await VadManager()
     }
@@ -28,7 +28,7 @@ final class FluidSTTService: STTService, @unchecked Sendable {
 
         let diskSource: DiskBackedAudioSampleSource
         do {
-            let factory = StreamingAudioSourceFactory()
+            let factory = AudioSourceFactory()
             let (source, _) = try factory.makeDiskBackedSource(
                 from: audioURL, targetSampleRate: 16000
             )
