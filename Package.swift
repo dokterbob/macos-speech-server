@@ -7,10 +7,9 @@ let package = Package(
     platforms: [.macOS(.v14)],
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.76.0"),
-        // FluidAudio 0.12.3 introduced KokoroTtsManager (Kokoro TTS engine).
-        // The .int8 SDK guard bug (issue #363) is fixed in v0.12.4 via #if canImport(FoundationModels).
-        // Require v0.12.4+ so CI on macOS 15 works and Kokoro TTS is available.
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.12.4"),
+        // FluidAudio 0.13.4+ fixes Swift 6.3 concurrency errors in StreamingAsrManager
+        // (FluidInference/FluidAudio#448).
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.13.4"),
         .package(url: "https://github.com/vapor/multipart-kit.git", from: "4.0.0"),
         .package(url: "https://github.com/jpsim/Yams.git", from: "6.0.1"),
         // async-http-client 1.31+ depends on swift-configuration, which uses Data.bytes.
