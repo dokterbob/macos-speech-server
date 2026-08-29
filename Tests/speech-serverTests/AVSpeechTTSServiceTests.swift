@@ -140,7 +140,9 @@ final class AVSpeechTTSServiceTests: XCTestCase {
     // MARK: - Voice lookup (short name and identifier)
 
     func testShortNameLookupIsCaseInsensitive() async throws {
-        let firstName = service.availableVoices.first!
+        guard let firstName = service.availableVoices.first else {
+            throw XCTSkip("No system voices available")
+        }
         // Lower-case should resolve
         let data = try await service.synthesize(text: "Hi.", voice: firstName.lowercased())
         XCTAssertGreaterThan(data.count, 44)
@@ -153,5 +155,128 @@ final class AVSpeechTTSServiceTests: XCTestCase {
         }
         let data = try await service.synthesize(text: "Hi.", voice: avVoice.identifier)
         XCTAssertGreaterThan(data.count, 44)
+    }
+
+    // MARK: - Language reporting
+
+    func testLanguageForKnownVoice() throws {
+        // Every system voice must have a language code that is non-empty
+        // and conforms to a locale pattern (e.g. "de-DE", "en-US", "it-IT").
+        XCTAssertFalse(service.availableVoices.isEmpty)
+
+        for voiceName in service.availableVoices {
+            let lang = service.language(for: voiceName)
+            XCTAssertFalse(lang.isEmpty, "Voice '\(voiceName)' must have a non-empty language code")
+            // Expect pattern like "de-DE" or "en-US" — at least contains a hyphen
+            XCTAssertTrue(
+                lang.contains("-"),
+                "Voice '\(voiceName)' language '\(lang)' should be a locale code (e.g. 'de-DE')"
+            )
+        }
+    }
+
+    func testLanguageForCaseInsensitiveLookup() throws {
+        guard let firstVoice = service.availableVoices.first else {
+            throw XCTSkip("No system voices available")
+        }
+        let lower = service.language(for: firstVoice.lowercased())
+        let upper = service.language(for: firstVoice.uppercased())
+        XCTAssertEqual(lower, upper, "Language lookup must be case-insensitive")
+    }
+
+    /// REGRESSION TEST: on main (before this patch) every voice returned "en".
+    /// This test verifies that non-English voices now report their actual locale.
+    /// Some voices (Eddy, Sandy, etc.) appear once per locale with the same name;
+    /// the reported language may be any of the locales offered for that name, but
+    /// never the bare "en" fallback (which would mean the lookup failed).
+    func testNonEnglishVoicesReportCorrectLanguage() throws {
+        let voices = AVSpeechSynthesisVoice.speechVoices()
+
+        try XCTSkipIf(
+            voices.isEmpty,
+            "No system voices available"
+        )
+
+        // Check deduplicated voice names have non-English language codes
+        var seenNames: Set<String> = []
+        for avVoice in voices where seenNames.insert(avVoice.name).inserted {
+            let lang = service.language(for: avVoice.name)
+            XCTAssertTrue(
+                !lang.isEmpty && lang != "en",
+                "Voice '\(avVoice.name)' should report a locale like 'de-DE', got '\(lang)'"
+            )
+            XCTAssertTrue(
+                lang.contains("-"),
+                "Voice '\(avVoice.name)' language '\(lang)' should be a locale code (e.g. 'de-DE')"
+            )
+        }
+    }
+
+    /// REGRESSION TEST: language(for:) must report the locale of the voice that
+    /// synthesis actually resolves. Identifiers are unique, so passing an
+    /// identifier must return exactly that voice's locale.
+    func testLanguageMatchesVoiceForUniqueIdentifiers() throws {
+        let voices = AVSpeechSynthesisVoice.speechVoices()
+        try XCTSkipIf(voices.isEmpty, "No system voices available")
+
+        for voice in voices {
+            XCTAssertEqual(
+                service.language(for: voice.identifier), voice.language,
+                "language(for: identifier) must return the exact locale of that voice"
+            )
+        }
+    }
+
+    /// REGRESSION TEST: names can exist in several locales (Eddy, Sandy, …).
+    /// languages(for:) must expose every locale that exists for the name, so a
+    /// multi-locale voice never advertises just one arbitrary language.
+    func testLanguagesForNameIncludeEveryLocale() throws {
+        let voices = AVSpeechSynthesisVoice.speechVoices()
+        try XCTSkipIf(voices.isEmpty, "No system voices available")
+
+        var seen: Set<String> = []
+        for voice in voices where seen.insert(voice.name).inserted {
+            let langs = service.languages(for: voice.name)
+            XCTAssertTrue(
+                langs.contains(voice.language),
+                "languages(for: '\(voice.name)') must include '\(voice.language)', got \(langs)"
+            )
+            XCTAssertTrue(
+                langs.contains(service.language(for: voice.name)),
+                "language(for:) result must be one of languages(for:) for '\(voice.name)'"
+            )
+        }
+    }
+
+    // MARK: - Synthesize with language
+
+    func testSynthesizeWithGermanVoiceUsesCorrectLanguage() async throws {
+        // Find a German voice (deduplicated by name)
+        var seenNames: Set<String> = []
+        let germanVoices = AVSpeechSynthesisVoice.speechVoices()
+            .filter { $0.language.hasPrefix("de-") && seenNames.insert($0.name).inserted }
+
+        try XCTSkipIf(germanVoices.isEmpty, "No German system voice available")
+
+        guard let germanVoice = germanVoices.first else {
+            XCTFail("No German voice found after skip")
+            return
+        }
+        // Identifier path is unique: must report exactly the German locale.
+        XCTAssertEqual(
+            service.language(for: germanVoice.identifier), germanVoice.language,
+            "German voice identifier must report its exact de-* locale"
+        )
+        // Name path may resolve any of the name's locales, but it must be one
+        // of them and never the bare "en" fallback.
+        let nameLang = service.language(for: germanVoice.name)
+        XCTAssertTrue(
+            service.languages(for: germanVoice.name).contains(nameLang),
+            "language(for: name) must be one of the name's locales, got '\(nameLang)'"
+        )
+        XCTAssertNotEqual(
+            nameLang, "en",
+            "language(for: '\(germanVoice.name)') must not fall back to 'en' — the name exists in the voice list"
+        )
     }
 }

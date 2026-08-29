@@ -119,7 +119,8 @@ func configure(_ app: Application) async throws {
     else {
         wyomingPort = config.servers.wyoming.port
     }
-    let sttInfo: STTInfo = config.stt.engine == .qwen3 ? .qwen3 : .parakeet
+    let modelVersion = config.stt.parakeet?.modelVersion ?? "v3"
+    let sttInfo: STTInfo = config.stt.engine == .qwen3 ? .qwen3 : .parakeet(modelVersion: modelVersion)
     if wyomingPort > 0 && app.environment != .testing {
         let wyomingServer = WyomingServer(
             host: wyomingHost,

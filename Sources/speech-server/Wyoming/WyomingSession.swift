@@ -22,11 +22,25 @@ struct STTInfo: Sendable {
     let modelDescription: String
     let languages: [String]
 
-    static let parakeet = STTInfo(
-        modelName: "parakeet-tdt-0.6b",
-        modelDescription: "Parakeet TDT 0.6B on-device ASR via FluidAudio",
-        languages: ["en"]
-    )
+    /// v2 = English-only, v3 = 25 European languages.
+    static func parakeet(modelVersion: String = "v3") -> STTInfo {
+        let langs: [String]
+        if modelVersion == "v2" {
+            langs = ["en"]
+        }
+        else {
+            langs = [
+                "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de",
+                "el", "hu", "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk",
+                "sl", "es", "sv", "ru", "uk",
+            ]
+        }
+        return STTInfo(
+            modelName: "parakeet-tdt-0.6b",
+            modelDescription: "Parakeet TDT 0.6B on-device ASR via FluidAudio",
+            languages: langs
+        )
+    }
 
     static let qwen3 = STTInfo(
         modelName: "qwen3-asr",
@@ -56,7 +70,7 @@ actor WyomingSession {
     init(
         ttsService: any TTSService,
         sttService: any STTService,
-        sttInfo: STTInfo = .parakeet,
+        sttInfo: STTInfo = .parakeet(),
         logger: Logger = Logger(label: "WyomingSession")
     ) {
         self.ttsService = ttsService
@@ -388,7 +402,7 @@ actor WyomingSession {
                 "attribution": serverAttribution,
                 "installed": .bool(true),
                 "version": .string("1.0.0"),
-                "languages": .array([.string("en")]),
+                "languages": .array(ttsService.languages(for: name).map { .string($0) }),
             ])
         }
 
