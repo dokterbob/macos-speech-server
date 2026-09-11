@@ -45,42 +45,44 @@ final class WyomingSessionTests: XCTestCase {
         let info = events[0]
 
         // Must have both asr and tts arrays
-        let asrArray = info.data["asr"]?.arrayValue
-        let ttsArray = info.data["tts"]?.arrayValue
-        XCTAssertNotNil(asrArray)
-        XCTAssertNotNil(ttsArray)
-        XCTAssertFalse(asrArray!.isEmpty)
-        XCTAssertFalse(ttsArray!.isEmpty)
+        guard let asrArray = info.data["asr"]?.arrayValue,
+            let ttsArray = info.data["tts"]?.arrayValue
+        else {
+            XCTFail("info response missing asr or tts arrays")
+            return
+        }
+        XCTAssertFalse(asrArray.isEmpty, "asr array should not be empty")
+        XCTAssertFalse(ttsArray.isEmpty, "tts array should not be empty")
 
         // ASR program must have a "models" array (two-level hierarchy)
-        let asrProgram = asrArray![0].objectValue
-        XCTAssertNotNil(asrProgram)
-        XCTAssertEqual(asrProgram?["installed"]?.boolValue, true)
+        guard let asrProgram = asrArray[0].objectValue,
+            let asrModels = asrProgram["models"]?.arrayValue,
+            !asrModels.isEmpty,
+            let firstAsrModel = asrModels[0].objectValue,
+            let asrModelLangs = firstAsrModel["languages"]?.arrayValue
+        else {
+            XCTFail("ASR program structure invalid or missing languages on model")
+            return
+        }
+        XCTAssertEqual(asrProgram["installed"]?.boolValue, true)
         // languages must NOT be on the program — it lives on the model
-        XCTAssertNil(asrProgram?["languages"])
-        let asrModels = asrProgram?["models"]?.arrayValue
-        XCTAssertNotNil(asrModels)
-        XCTAssertFalse(asrModels!.isEmpty)
-        let firstAsrModel = asrModels![0].objectValue
-        XCTAssertNotNil(firstAsrModel)
-        XCTAssertEqual(firstAsrModel?["installed"]?.boolValue, true)
-        let asrModelLangs = firstAsrModel?["languages"]?.arrayValue
-        XCTAssertNotNil(asrModelLangs)
-        XCTAssertTrue(asrModelLangs!.contains(where: { $0.stringValue == "en" }))
+        XCTAssertNil(asrProgram["languages"])
+        XCTAssertEqual(firstAsrModel["installed"]?.boolValue, true)
+        XCTAssertTrue(asrModelLangs.contains(where: { $0.stringValue == "en" }))
 
         // TTS program must have a "voices" array; each voice has "languages"
-        let ttsProgram = ttsArray![0].objectValue
-        XCTAssertNotNil(ttsProgram)
-        // languages must NOT be on the program — it lives on the voice
-        XCTAssertNil(ttsProgram?["languages"])
-        let voices = ttsProgram?["voices"]?.arrayValue
-        XCTAssertNotNil(voices)
-        XCTAssertFalse(voices!.isEmpty)
-        let albaVoice = voices![0].objectValue
-        XCTAssertEqual(albaVoice?["name"]?.stringValue, "alba")
-        let voiceLangs = albaVoice?["languages"]?.arrayValue
-        XCTAssertNotNil(voiceLangs)
-        XCTAssertTrue(voiceLangs!.contains(where: { $0.stringValue == "en" }))
+        guard let ttsProgram = ttsArray[0].objectValue,
+            let voices = ttsProgram["voices"]?.arrayValue,
+            !voices.isEmpty,
+            let albaVoice = voices[0].objectValue,
+            let voiceLangs = albaVoice["languages"]?.arrayValue
+        else {
+            XCTFail("TTS program structure invalid or missing voices/languages")
+            return
+        }
+        XCTAssertNil(ttsProgram["languages"])
+        XCTAssertEqual(albaVoice["name"]?.stringValue, "alba")
+        XCTAssertTrue(voiceLangs.contains(where: { $0.stringValue == "en" }))
 
         // Empty arrays for unsupported services must be present
         XCTAssertEqual(info.data["handle"]?.arrayValue?.count, 0)
@@ -391,7 +393,7 @@ final class WyomingSessionTests: XCTestCase {
 
         let ttsArray = info.data["tts"]?.arrayValue
         XCTAssertNotNil(ttsArray)
-        let ttsProgram = ttsArray![0].objectValue
+        let ttsProgram = ttsArray?[0].objectValue
         XCTAssertNotNil(ttsProgram)
         XCTAssertEqual(ttsProgram?["supports_synthesize_streaming"]?.boolValue, true)
     }
@@ -650,5 +652,145 @@ final class WyomingSessionTests: XCTestCase {
         XCTAssertEqual(infoResponses.count, 1)
         let events = decodeEvents(from: infoResponses)
         XCTAssertEqual(events[0].type, "info")
+    }
+
+    // MARK: - TTS language in describe
+
+    func testTTSVoicesReportCorrectLanguageInDescribe() async throws {
+        // Mock with multiple voices in different languages
+        let session = WyomingSession(
+            ttsService: MockTTSService(
+                availableVoices: ["alba", "marta", "yuri"],
+                voiceLanguages: ["alba": "en-US", "marta": "de-DE", "yuri": "it-IT"]
+            ),
+            sttService: MockSTTService()
+        )
+        let stream = await session.handle(event: WyomingEvent(type: "describe"))
+        let responses = await collect(stream)
+        let events = decodeEvents(from: responses)
+        let info = events[0]
+
+        guard let ttsArray = info.data["tts"]?.arrayValue,
+            let ttsProgram = ttsArray.first?.objectValue,
+            let voices = ttsProgram["voices"]?.arrayValue
+        else {
+            XCTFail("TTS program or voices array missing")
+            return
+        }
+
+        for voiceValue in voices {
+            guard let voiceObj = voiceValue.objectValue,
+                let name = voiceObj["name"]?.stringValue,
+                let langs = voiceObj["languages"]?.arrayValue,
+                let firstLang = langs.first?.stringValue
+            else {
+                XCTFail("Voice entry missing name or languages")
+                continue
+            }
+            // Verify the language matches what we configured
+            switch name {
+            case "alba":
+                XCTAssertEqual(firstLang, "en-US", "alba should report en-US")
+            case "marta":
+                XCTAssertEqual(firstLang, "de-DE", "marta should report de-DE")
+            case "yuri":
+                XCTAssertEqual(firstLang, "it-IT", "yuri should report it-IT")
+            default:
+                XCTFail("Unexpected voice '\(name)' in info response")
+            }
+        }
+    }
+
+    /// REGRESSION TEST: on main (before this patch), every TTS voice hardcoded
+    /// "languages": ["en"] regardless of the voice's actual locale.
+    /// This test verifies that each voice's language comes from
+    /// TTSService.language(for:) and is not the hardcoded "en" default.
+    func testAllTTSVoicesLanguageIsNotHardcodedEn() async throws {
+        // Simulate voices that are NOT English — this regression test
+        // fails on main because language was hardcoded to ["en"].
+        let session = WyomingSession(
+            ttsService: MockTTSService(
+                availableVoices: ["franz", "clara"],
+                voiceLanguages: ["franz": "fr-FR", "clara": "de-DE"]
+            ),
+            sttService: MockSTTService()
+        )
+        let stream = await session.handle(event: WyomingEvent(type: "describe"))
+        let responses = await collect(stream)
+        let events = decodeEvents(from: responses)
+        let info = events[0]
+
+        guard let ttsArray = info.data["tts"]?.arrayValue,
+            let ttsProgram = ttsArray[0].objectValue,
+            let voices = ttsProgram["voices"]?.arrayValue
+        else {
+            XCTFail("TTS program or voices array missing")
+            return
+        }
+
+        for voiceValue in voices {
+            guard let voiceObj = voiceValue.objectValue,
+                let name = voiceObj["name"]?.stringValue,
+                let langs = voiceObj["languages"]?.arrayValue,
+                let firstLang = langs.first?.stringValue
+            else {
+                XCTFail("Voice entry missing name or languages")
+                continue
+            }
+
+            XCTAssertNotEqual(
+                firstLang, "en",
+                "Voice '\(name)' must NOT report hardcoded 'en' — should use TTSService.language(for:)"
+            )
+            XCTAssertTrue(
+                firstLang.contains("-"),
+                "Voice '\(name)' should report a locale code (e.g. 'de-DE'), not bare '\(firstLang)'"
+            )
+        }
+    }
+
+    func testUnconfiguredVoiceFallsBackToEn() async throws {
+        // Voice not in the voiceLanguages map should use the default "en" fallback.
+        let session = WyomingSession(
+            ttsService: MockTTSService(
+                availableVoices: ["unknown_voice"],
+                voiceLanguages: [:]  // no mappings
+            ),
+            sttService: MockSTTService()
+        )
+        let stream = await session.handle(event: WyomingEvent(type: "describe"))
+        let responses = await collect(stream)
+        let events = decodeEvents(from: responses)
+        let info = events[0]
+
+        guard let ttsArray = info.data["tts"]?.arrayValue,
+            let ttsProgram = ttsArray.first?.objectValue,
+            let voices = ttsProgram["voices"]?.arrayValue,
+            let firstVoice = voices.first?.objectValue,
+            let langs = firstVoice["languages"]?.arrayValue
+        else {
+            XCTFail("TTS program, voices or languages missing")
+            return
+        }
+        XCTAssertEqual(langs.first?.stringValue, "en")
+    }
+
+    // MARK: - TTSService.language(for:) default implementation
+
+    func testTTSServiceLanguageDefaultReturnsEn() {
+        // Create a minimal mock that does NOT override language(for:).
+        struct MinimalTTS: TTSService {
+            var sampleRate: Int { 24000 }
+            var defaultVoice: String { "default" }
+            var availableVoices: [String] { ["default"] }
+            func synthesize(text: String, voice: String) async throws -> Data { Data() }
+            func synthesizeStream(text: String, voice: String) -> AsyncThrowingStream<Data, Error> {
+                AsyncThrowingStream { $0.finish() }
+            }
+        }
+        let tts = MinimalTTS()
+        XCTAssertEqual(
+            tts.language(for: "anything"), "en",
+            "Default language(for:) implementation must return 'en'")
     }
 }
