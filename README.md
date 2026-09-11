@@ -60,7 +60,8 @@ sudo dscl . -create /Users/_speech-server NFSHomeDirectory "$(brew --prefix)/var
 sudo mkdir -p "$(brew --prefix)/var/speech-server"
 sudo chown -R _speech-server "$(brew --prefix)/var/speech-server"
 
-# 3. Start the service at boot
+# 3. Stop the per-user service if it is running, then start the system service at boot
+brew services stop macos-speech-server 2>/dev/null || true
 sudo brew services start macos-speech-server --sudo-service-user _speech-server
 ```
 

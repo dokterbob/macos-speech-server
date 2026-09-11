@@ -464,7 +464,9 @@ in favor of the formula's `service do` block, which generates and manages the pl
 locations in the table. `brew services start|stop|restart macos-speech-server` manages the
 per-user LaunchAgent; adding `sudo` plus `--sudo-service-user _speech-server` switches Homebrew
 to installing a system LaunchDaemon that runs as that role account instead of root. Don't run
-both modes at once — they bind the same ports. `brew upgrade macos-speech-server` is always run
+both modes at once — they bind the same ports. The README's system-startup sequence therefore
+stops the per-user service (`brew services stop macos-speech-server`) before
+`sudo brew services start … --sudo-service-user`. `brew upgrade macos-speech-server` is always run
 as the normal user; only the post-upgrade restart differs by mode —
 `brew services restart macos-speech-server` for per-user, or
 `sudo brew services restart macos-speech-server --sudo-service-user _speech-server` for system.
