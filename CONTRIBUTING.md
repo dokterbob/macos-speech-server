@@ -6,6 +6,8 @@ See [README.md](README.md) for requirements, configuration, and API documentatio
 
 ## Getting started
 
+If you only want to run the server, install it with Homebrew instead (see README → Installation).
+
 ```bash
 git clone https://github.com/dokterbob/macos-speech-server.git
 cd macos-speech-server

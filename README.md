@@ -11,11 +11,161 @@ Two interfaces, one server:
 
 ## Requirements
 
-- macOS 14+
-- Swift 6.2+
+- macOS 14+ (Homebrew bottles need macOS 15+ on Apple Silicon; see [Installation](#installation))
 - Apple Silicon recommended (Neural Engine acceleration)
+- Swift 6.2+ only when building from source (requires macOS 15+)
 
-## Quick start
+## Installation
+
+Install via [Homebrew](https://brew.sh):
+
+```bash
+brew install dokterbob/macos-speech-server/macos-speech-server
+brew services start macos-speech-server
+```
+
+This installs a per-user [LaunchAgent](https://www.launchd.info) that starts the server at login and runs it as your user -- no `sudo` needed.
+
+The example config is installed at `$(brew --prefix)/etc/speech-server/speech-server.yaml`. Edit it, then restart:
+
+```bash
+brew services restart macos-speech-server
+```
+
+Logs are written to `$(brew --prefix)/var/log/speech-server.log`; the working directory is `$(brew --prefix)/var/speech-server`.
+
+On first start the server downloads ASR/TTS models -- roughly 700 MB with the default engines, up to ~1.75 GB if you switch to the `qwen3` `f32` variant -- into `~/Library/Application Support/FluidAudio` and `~/.cache/fluidaudio`. This takes several minutes and prints nothing at the default `log_level: notice`; set `log_level: info` in the config to watch progress.
+
+Check readiness once the download completes:
+
+```bash
+curl -sf -X POST http://127.0.0.1:8080/v1/audio/speech \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"tts-1","input":"Hello"}' -o /tmp/hello.wav
+```
+
+By default the server only listens on `127.0.0.1` (HTTP port 8080, Wyoming port 10300; set `wyoming.port: 0` to disable Wyoming). To reach it from other machines, change `servers.http.host` / `servers.wyoming.host` -- see [Accessing from other machines](#accessing-from-other-machines).
+
+### Run at system startup (optional)
+
+The per-user LaunchAgent above only runs while you're logged in. For a server that starts at boot without a login session, running under a dedicated least-privilege account, use Homebrew's built-in system-service support (Apple's role-account pattern -- no custom scripts):
+
+```bash
+# 1. Create the role account. Pick an unused UID in 450-499; this lists the ones already taken:
+#    dscl . -list /Users UniqueID | awk '$2 >= 450 && $2 <= 499'
+sudo sysadminctl -addUser _speech-server -fullName "Speech Server" -UID 450 -roleAccount
+
+# 2. Point its home at the data directory (sysadminctl ignores -home for role accounts)
+sudo dscl . -create /Users/_speech-server NFSHomeDirectory "$(brew --prefix)/var/speech-server"
+sudo mkdir -p "$(brew --prefix)/var/speech-server"
+sudo chown -R _speech-server "$(brew --prefix)/var/speech-server"
+
+# 3. Start the service at boot
+sudo brew services start macos-speech-server --sudo-service-user _speech-server
+```
+
+Verify it's running:
+
+```bash
+sudo launchctl print system/sh.brew.macos-speech-server
+dscl . -read /Users/_speech-server NFSHomeDirectory UniqueID
+```
+
+Models are then cached under `$(brew --prefix)/var/speech-server/Library/Application Support/FluidAudio` and `$(brew --prefix)/var/speech-server/.cache/fluidaudio`. After editing the config, restart with:
+
+```bash
+sudo brew services restart macos-speech-server --sudo-service-user _speech-server
+```
+
+To remove the system service:
+
+```bash
+sudo brew services stop macos-speech-server
+sudo sysadminctl -deleteUser _speech-server
+sudo rm -rf "$(brew --prefix)/var/speech-server"
+```
+
+**Don't run the per-user and the system service at the same time** -- they'll fight over the same ports. If you switch from the system service back to the per-user one, the log file is left root-owned; remove it first:
+
+```bash
+sudo rm "$(brew --prefix)/var/log/speech-server.log"
+```
+
+### Upgrading
+
+```bash
+brew upgrade macos-speech-server
+brew services restart macos-speech-server
+```
+
+If you run the system service instead, restart it with:
+
+```bash
+sudo brew services restart macos-speech-server --sudo-service-user _speech-server
+```
+
+`brew upgrade` itself is run as your normal user in both cases -- only the restart differs.
+
+Your edited config is preserved; the new example config is written alongside it as `speech-server.yaml.default` so you can diff in any new options.
+
+### Platform notes
+
+Bottles are built for Apple Silicon on macOS 15+. On macOS 14 or Intel, Homebrew builds from source, which requires Swift 6.2 (Xcode 26 or matching Command Line Tools, macOS 15+) -- so macOS 14 currently can't install via Homebrew, and Intel Macs always build from source.
+
+### Migrating from the old deploy/ scripts
+
+Earlier versions of this project shipped `deploy/install-agent.sh` and `deploy/install-daemon.sh`,
+which installed a launchd job labelled `com.local.speech-server`. That job is not related to the
+Homebrew service and keeps holding ports 8080/10300 if left running, so remove it in two steps
+around `brew install`:
+
+**1. Before `brew install` -- stop and remove the old job and binary:**
+
+```bash
+# Per-user LaunchAgent
+launchctl bootout "gui/$(id -u)/com.local.speech-server" 2>/dev/null || true
+rm -f ~/Library/LaunchAgents/com.local.speech-server.plist ~/bin/speech-server
+
+# System LaunchDaemon
+sudo launchctl bootout system/com.local.speech-server 2>/dev/null || true
+sudo rm -f /Library/LaunchDaemons/com.local.speech-server.plist /usr/local/bin/speech-server
+```
+
+On Intel Macs Homebrew lives in `/usr/local`, so the old binary must be gone before installing --
+otherwise the formula cannot link its own `speech-server` into `/usr/local/bin`.
+
+**2. After `brew install`, before `brew services start` -- optional: keep your old settings by copying them over the freshly installed example:**
+
+```bash
+# Per-user config
+cp ~/.config/speech-server/speech-server.yaml "$(brew --prefix)/etc/speech-server/speech-server.yaml"
+
+# System config
+sudo cp /etc/speech-server/speech-server.yaml "$(brew --prefix)/etc/speech-server/speech-server.yaml"
+```
+
+The old daemon installer created a `_speech-server` account with home `/Users/_speech-server`. If
+you want the new [system service](#run-at-system-startup-optional), either reuse that account --
+skip step 1 (`sysadminctl -addUser`) and run only step 2 (the `dscl`/`mkdir`/`chown` lines,
+which repoint its home at `$(brew --prefix)/var/speech-server` and create that directory) and
+step 3 (`sudo brew services start`). Optionally move the old model cache first so it doesn't
+re-download:
+
+```bash
+sudo ditto "/Users/_speech-server/Library/Application Support/FluidAudio" \
+  "$(brew --prefix)/var/speech-server/Library/Application Support/FluidAudio"
+sudo ditto "/Users/_speech-server/.cache/fluidaudio" \
+  "$(brew --prefix)/var/speech-server/.cache/fluidaudio"
+```
+
+Or remove the old account first with
+`sudo sysadminctl -deleteUser _speech-server && sudo rm -rf /Users/_speech-server` and follow the
+system-startup section from scratch. Old logs in `~/Library/Logs/speech-server/` or
+`/var/log/speech-server/` can be deleted.
+
+## Quick start (from source)
+
+For contributors, or if Homebrew is not an option. If you installed via Homebrew, skip to [Configuration](#configuration).
 
 ```bash
 swift build
@@ -28,7 +178,7 @@ The server listens on `http://localhost:8080` by default. The Wyoming protocol s
 
 ## Configuration
 
-All server settings can be customised via a YAML config file. Create `speech-server.yaml` in the working directory (a fully-commented example is included in the repo):
+All server settings can be customised via a YAML config file. Create `speech-server.yaml` in the working directory (a fully-commented example is included in the repo). The Homebrew install ships this same example config at `$(brew --prefix)/etc/speech-server/speech-server.yaml`; the discovery rules below are unchanged, and the LaunchAgent/system service sets `SPEECH_SERVER_CONFIG` to point at it automatically.
 
 ```yaml
 log_level: notice     # trace | debug | info | notice | warning | error | critical
@@ -143,7 +293,7 @@ tts:
 
 American English voices (production-quality): `af_alloy`, `af_aoede`, `af_bella`, `af_heart`, `af_jessica`, `af_kore`, `af_nicole`, `af_nova`, `af_river`, `af_sarah`, `af_sky`, `am_adam`, `am_echo`, `am_eric`, `am_fenrir`, `am_liam`, `am_michael`, `am_onyx`, `am_puck`, `am_santa`.
 
-Other language voices are experimental (not QA'd). Full voice list: use `/v1/audio/speech` with an invalid voice to see the available options listed in the error message, or query `GET /v1/models` via your client library.
+Other language voices are experimental (not QA'd). Full voice list: use `/v1/audio/speech` with an invalid voice to see the available options listed in the error message.
 
 ### Config discovery order
 
@@ -171,122 +321,7 @@ Vapor's `--hostname` and `--port` CLI flags also work and take highest priority 
 
 ## Deployment
 
-This project supports two launchd deployment models:
-
-| Model | Scope | Privileges | Persistence | Install script |
-|---|---|---|---|---|
-| LaunchDaemon | System-wide | `sudo` required | Starts at boot, survives logout | `deploy/install-daemon.sh` |
-| LaunchAgent | Per-user | No `sudo` | Starts at user login | `deploy/install-agent.sh` |
-
-### Option A: LaunchDaemon (persistent system service)
-
-Recommended when you want the server always available on the machine.
-
-1. Build and install:
-
-```bash
-sudo deploy/install-daemon.sh
-```
-
-2. Verify status:
-
-```bash
-sudo launchctl print system/com.local.speech-server
-```
-
-3. Watch logs:
-
-```bash
-sudo tail -f /var/log/speech-server/output.log /var/log/speech-server/error.log
-```
-
-What the installer does:
-- Creates dedicated service account `_speech-server`.
-- Installs binary to `/usr/local/bin/speech-server`.
-- Installs config to `/etc/speech-server/speech-server.yaml` (without overwriting existing config).
-- Installs LaunchDaemon plist to `/Library/LaunchDaemons/com.local.speech-server.plist`.
-- Optionally pre-populates FluidAudio cache from invoking user into the service account home.
-
-Useful daemon commands:
-
-```bash
-# Restart daemon after config changes
-sudo launchctl kickstart -k system/com.local.speech-server
-
-# Stop daemon
-sudo launchctl bootout system/com.local.speech-server
-
-# Start daemon again
-sudo launchctl bootstrap system /Library/LaunchDaemons/com.local.speech-server.plist
-sudo launchctl enable system/com.local.speech-server
-sudo launchctl kickstart -k system/com.local.speech-server
-```
-
-Uninstall daemon:
-
-```bash
-# Keep config/logs/service user
-sudo deploy/uninstall-daemon.sh
-
-# Remove everything including config/logs/model cache/service user
-sudo deploy/uninstall-daemon.sh --purge
-```
-
-### Option B: LaunchAgent (per-user service)
-
-Recommended when you want user-session startup with no system-wide changes.
-
-1. Build and install:
-
-```bash
-deploy/install-agent.sh
-```
-
-2. Verify status:
-
-```bash
-launchctl print gui/$(id -u)/com.local.speech-server
-```
-
-3. Watch logs:
-
-```bash
-tail -f "$HOME/Library/Logs/speech-server/output.log" "$HOME/Library/Logs/speech-server/error.log"
-```
-
-Useful agent commands:
-
-```bash
-# Restart agent after config changes
-launchctl kickstart -k gui/$(id -u)/com.local.speech-server
-
-# Stop agent
-launchctl bootout gui/$(id -u)/com.local.speech-server
-
-# Start agent again
-launchctl bootstrap gui/$(id -u) "$HOME/Library/LaunchAgents/com.local.speech-server.plist"
-launchctl enable gui/$(id -u)/com.local.speech-server
-launchctl kickstart -k gui/$(id -u)/com.local.speech-server
-```
-
-Uninstall agent:
-
-```bash
-# Keep config/logs
-deploy/uninstall-agent.sh
-
-# Remove user config/logs too
-deploy/uninstall-agent.sh --purge
-```
-
-### Deployment files
-
-The `deploy/` directory contains ready-to-use templates and scripts:
-
-- `deploy/com.local.speech-server.plist` -- LaunchDaemon template
-- `deploy/com.local.speech-server.agent.plist` -- LaunchAgent template (`__HOME__` placeholders are replaced by installer)
-- `deploy/install-daemon.sh` and `deploy/uninstall-daemon.sh`
-- `deploy/install-agent.sh` and `deploy/uninstall-agent.sh`
+Deployment is handled entirely by Homebrew -- see [Installation](#installation). Use `brew services start macos-speech-server` for a per-user service, or the [system startup](#run-at-system-startup-optional) section for a boot-time service running under a dedicated role account.
 
 ## API
 
@@ -491,6 +526,8 @@ Sources/speech-server/
     WyomingServer.swift            # TCP server bootstrap
     WyomingSession.swift           # Session state machine (STT + TTS)
     WyomingWAVWriter.swift         # PCM-to-WAV for STT handoff
+.github/workflows/
+  release.yml                      # Tags v* -> creates a GitHub Release (bottles are built in the Homebrew tap)
 ```
 
 ## Contributing

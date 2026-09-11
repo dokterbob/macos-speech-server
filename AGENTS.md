@@ -432,33 +432,117 @@ swift test --filter ServerConfig  # run a specific test class
 - **Concurrency**: redundant runs on rapid pushes are cancelled via `concurrency.cancel-in-progress: true`.
 - **Cold-cache run**: model download + SPM compilation takes ~10-20 min. Warm-cache run: ~1-2 min.
 
-## Deployment
+`.github/workflows/release.yml` runs on pushes of tags matching `v*`. It creates a GitHub
+Release for the tag with generated release notes; it is idempotent (skips if a release for the
+tag already exists) and ships no binaries -- bottles are built and published separately by the
+Homebrew tap (see [Distribution (Homebrew)](#distribution-homebrew) and
+[Release process](#release-process) below).
 
-The repository supports launchd deployment via files in `deploy/`:
+## Distribution (Homebrew)
 
-- `com.local.speech-server.plist`: LaunchDaemon template (system-wide, persistent at boot).
-- `com.local.speech-server.agent.plist`: LaunchAgent template (per-user, starts at login).
-- `install-daemon.sh` / `uninstall-daemon.sh`: install and remove LaunchDaemon deployment.
-- `install-agent.sh` / `uninstall-agent.sh`: install and remove LaunchAgent deployment.
+Homebrew is the only supported installation method. The tap is
+[`dokterbob/homebrew-macos-speech-server`](https://github.com/dokterbob/homebrew-macos-speech-server)
+(GitHub repo `dokterbob/homebrew-macos-speech-server`), formula `macos-speech-server`. The
+binary installed by the formula is still named `speech-server`. There is no `deploy/`
+directory in this repo anymore — launchd plists and install/uninstall scripts were removed
+in favor of the formula's `service do` block, which generates and manages the plist for you.
 
-**LaunchDaemon conventions:**
-- Service label: `com.local.speech-server`.
-- Service account: dedicated `_speech-server` user/group.
-- Binary path: `/usr/local/bin/speech-server`.
-- Config path: `/etc/speech-server/speech-server.yaml` (wired via `SPEECH_SERVER_CONFIG`).
-- Log paths: `/var/log/speech-server/output.log` and `/var/log/speech-server/error.log`.
-- Plist path: `/Library/LaunchDaemons/com.local.speech-server.plist`.
+**File locations** (`$(brew --prefix)` is typically `/opt/homebrew` on Apple Silicon):
 
-**Model cache behavior (daemon):**
-- FluidAudio model cache for daemon mode lives under `/Users/_speech-server/Library/Application Support/FluidAudio`.
-- `deploy/install-daemon.sh` attempts to pre-populate this cache from the invoking user's cache (`$SUDO_USER`) unless `--skip-model-copy` is passed.
+| | Per-user (`brew services start`) | System (`--sudo-service-user _speech-server`) |
+|---|---|---|
+| Binary | `$(brew --prefix)/bin/speech-server` | same |
+| Config | `$(brew --prefix)/etc/speech-server/speech-server.yaml` | same |
+| Logs | `$(brew --prefix)/var/log/speech-server.log` | same path, but root-owned |
+| Working dir | `$(brew --prefix)/var/speech-server` | same |
+| Model caches | `~/Library/Application Support/FluidAudio`, `~/.cache/fluidaudio` (invoking user) | `$(brew --prefix)/var/speech-server/Library/Application Support/FluidAudio`, `$(brew --prefix)/var/speech-server/.cache/fluidaudio` |
+| launchd plist | `~/Library/LaunchAgents/sh.brew.macos-speech-server.plist` | `/Library/LaunchDaemons/sh.brew.macos-speech-server.plist` |
+| Runs as | invoking user | `_speech-server` role account |
 
-**LaunchAgent conventions:**
-- Binary path: `~/bin/speech-server`.
-- Config path: `~/.config/speech-server/speech-server.yaml`.
-- Logs: `~/Library/Logs/speech-server/`.
-- Plist path: `~/Library/LaunchAgents/com.local.speech-server.plist`.
-- The agent plist template uses `__HOME__` placeholders; `deploy/install-agent.sh` resolves them to absolute paths before loading.
+**Service block semantics**: the formula's `service do` block runs `speech-server serve` with
+`SPEECH_SERVER_CONFIG` set to the config path above, and sets `working_dir`/`log_path` to the
+locations in the table. `brew services start|stop|restart macos-speech-server` manages the
+per-user LaunchAgent; adding `sudo` plus `--sudo-service-user _speech-server` switches Homebrew
+to installing a system LaunchDaemon that runs as that role account instead of root. Don't run
+both modes at once — they bind the same ports. `brew upgrade macos-speech-server` is always run
+as the normal user; only the post-upgrade restart differs by mode —
+`brew services restart macos-speech-server` for per-user, or
+`sudo brew services restart macos-speech-server --sudo-service-user _speech-server` for system.
+
+**Role-account creation gotchas**: `sysadminctl -addUser … -roleAccount` requires an explicit
+`-UID` in the 450–499 range — it errors without one. It also silently ignores `-home` and
+`-shell` for role accounts (home is forced to `/var/empty`, shell to `/usr/bin/false`); since
+launchd derives `HOME` from the account record, the home must be repointed after creation with
+`sudo dscl . -create /Users/_speech-server NFSHomeDirectory "$(brew --prefix)/var/speech-server"`,
+or model downloads go to `/var/empty` and fail. The formula itself does not create
+`$(brew --prefix)/var/speech-server` at install time — it has no `post_install` (removed per
+Homebrew's style rules); the directory is created by `brew services start` the first time the
+per-user LaunchAgent starts. In system mode nothing starts the per-user LaunchAgent first, so the
+directory must be created manually (`sudo mkdir -p`) before `chown`. See README → Installation →
+Run at system startup (optional) for the full three-step sequence.
+
+**Migration from `deploy/`**: pre-Homebrew versions installed a launchd job labelled
+`com.local.speech-server` via `deploy/install-agent.sh` / `deploy/install-daemon.sh`, at
+`~/Library/LaunchAgents/com.local.speech-server.plist` (or the daemon equivalent under
+`/Library/LaunchDaemons`) with binary/config paths like `~/bin/speech-server` /
+`~/.config/speech-server/speech-server.yaml` (or `/usr/local/bin/speech-server` /
+`/etc/speech-server/speech-server.yaml`). It must be `launchctl bootout`'d and its binary removed
+**before `brew install`**, not just before the service starts -- on Intel Macs Homebrew's prefix
+is `/usr/local`, so the stale `/usr/local/bin/speech-server` collides with the formula's own
+symlink and `brew install` fails to link. Old config can be copied over the freshly installed
+example afterward. See README → Installation → Migrating from the old deploy/ scripts for the
+exact commands and order.
+
+**Why no `depends_on xcode:`**: the formula does not declare an Xcode dependency. Building with
+Swift 6.2 only requires the Command Line Tools (`swift build` works without a full Xcode
+install); declaring `depends_on xcode:` would incorrectly reject CLT-only machines that can
+build the formula fine.
+
+**Why the config lives in Homebrew `etc`**: Homebrew's `etc` directory is the conventional
+location for installed config, and its `InstallRenamed` resource behavior means an existing,
+user-edited `speech-server.yaml` is preserved across upgrades — the new version's example is
+written alongside it as `speech-server.yaml.default` instead of overwriting the live config.
+
+**Log-ownership gotcha**: the system-service log file (`$(brew --prefix)/var/log/speech-server.log`)
+is root-owned when running under `--sudo-service-user`. Switching back to the per-user service
+without removing it first causes a permission error on write; `sudo rm` the log file before
+switching modes (see README → Installation → Run at system startup).
+
+## Release process
+
+1. A maintainer tags `vX.Y.Z` on merged `main`.
+2. `.github/workflows/release.yml` creates a GitHub Release with generated release notes.
+3. The tap's autobump workflow (runs daily) opens a formula-bump PR in
+   `dokterbob/homebrew-macos-speech-server`, or a maintainer triggers one manually:
+   ```bash
+   brew bump-formula-pr --version=X.Y.Z dokterbob/macos-speech-server/macos-speech-server
+   ```
+4. The tap's `brew test-bot` CI builds bottles for that PR.
+5. A maintainer publishes the bottles by running the tap's `publish.yml` workflow:
+   ```bash
+   gh workflow run publish.yml -R dokterbob/homebrew-macos-speech-server -f pull_request=<N>
+   ```
+   which uploads bottles to the tap's GitHub Releases and commits the bottle block.
+
+**GITHUB_TOKEN caveat**: PRs opened by the autobump workflow using the default `GITHUB_TOKEN` do
+not trigger tap CI (GitHub's cross-workflow-trigger restriction). Either configure a PAT secret
+`HOMEBREW_BUMP_TOKEN` in the tap, or close and reopen the autobump PR to trigger CI manually.
+
+**Workflow-push limitation**: this bot/agent's GitHub token cannot push `.github/workflows/*`
+files — a human maintainer must commit and push any new or changed workflow file (including
+`release.yml` itself, the first time).
+
+**Formula/test coupling**: the formula's `test do` block relies on `ServerConfig.load()` failing
+fast on an unknown engine *before* any model loading happens in `configure()`. Changing that
+ordering, or changing the decoding error text the test matches against, requires a matching
+update to the formula in the tap.
+
+**Follow-ups** (out of scope for this change, tracked for later):
+- Replace the top-level rethrow in `Entrypoint.swift` with a clean `exit(1)` on startup failure.
+- Add a `--version` flag — it must be intercepted before `configure(app)` runs, since Vapor only
+  parses commands inside `app.execute()`.
+- Wyoming's hardcoded `"1.0.0"` version strings in
+  `Sources/speech-server/Wyoming/WyomingSession.swift` should track the package version instead.
 
 ## Pull request workflow
 
