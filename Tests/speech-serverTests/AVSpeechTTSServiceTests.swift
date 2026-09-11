@@ -154,4 +154,99 @@ final class AVSpeechTTSServiceTests: XCTestCase {
         let data = try await service.synthesize(text: "Hi.", voice: avVoice.identifier)
         XCTAssertGreaterThan(data.count, 44)
     }
+
+    // MARK: - SSML
+
+    func testSSMLDetectionSynthesize() async throws {
+        let plainText = try await service.synthesize(text: "Hello.", voice: service.defaultVoice)
+        let ssmlText = try await service.synthesize(text: "<speak>Hello</speak>", voice: service.defaultVoice)
+
+        XCTAssertEqual(plainText.prefix(4), Data("RIFF".utf8))
+        XCTAssertEqual(ssmlText.prefix(4), Data("RIFF".utf8))
+        XCTAssertGreaterThan(ssmlText.count, 44)
+    }
+
+    func testSSMLWithBreakTag() async throws {
+        let data = try await service.synthesize(
+            text: "<speak>Hello<break time=\"500ms\"/>world</speak>",
+            voice: service.defaultVoice
+        )
+        XCTAssertEqual(data.prefix(4), Data("RIFF".utf8))
+        XCTAssertGreaterThan(data.count, 44)
+    }
+
+    func testSSMLWithPhoneme() async throws {
+        let data = try await service.synthesize(
+            text: "<speak>My name is <phoneme alphabet=\"ipac\" ph=\"ˈænə\">Anna</phoneme></speak>",
+            voice: service.defaultVoice
+        )
+        XCTAssertEqual(data.prefix(4), Data("RIFF".utf8))
+        XCTAssertGreaterThan(data.count, 44)
+    }
+
+    func testSSMLWithoutSpeakTagUsesPlainText() async throws {
+        let data = try await service.synthesize(
+            text: "<notspeak>Hello</notspeak>",
+            voice: service.defaultVoice
+        )
+        XCTAssertEqual(data.prefix(4), Data("RIFF".utf8))
+        XCTAssertGreaterThan(data.count, 44)
+    }
+
+    func testSpeakerTagIsNotSSML() async throws {
+        // "<speaker>" shares the "<speak" prefix but is not SSML; it must go
+        // through the plain-text path instead of throwing invalidSSML.
+        let data = try await service.synthesize(
+            text: "<speaker>Hello</speaker>",
+            voice: service.defaultVoice
+        )
+        XCTAssertEqual(data.prefix(4), Data("RIFF".utf8))
+        XCTAssertGreaterThan(data.count, 44)
+    }
+
+    func testSSMLWithLeadingWhitespace() async throws {
+        // Detection trims whitespace, so the SSML parser must receive the
+        // trimmed string — otherwise leading whitespace causes a parse error.
+        let data = try await service.synthesize(
+            text: "\n  <speak>Hello</speak>",
+            voice: service.defaultVoice
+        )
+        XCTAssertEqual(data.prefix(4), Data("RIFF".utf8))
+        XCTAssertGreaterThan(data.count, 44)
+    }
+
+    func testSSMLStreamDetection() async throws {
+        let stream = service.synthesizeStream(
+            text: "<speak>Hello world</speak>",
+            voice: service.defaultVoice
+        )
+        var chunkCount = 0
+        for try await chunk in stream {
+            XCTAssertFalse(chunk.isEmpty)
+            XCTAssertEqual(chunk.count % 2, 0)
+            chunkCount += 1
+        }
+        XCTAssertGreaterThan(chunkCount, 0, "SSML stream must yield at least one PCM chunk")
+    }
+
+    func testInvalidSSMLThrowsError() async {
+        do {
+            _ = try await service.synthesize(
+                text: "<speak>Unclosed tag",
+                voice: service.defaultVoice
+            )
+            XCTFail("Expected invalidSSML error")
+        }
+        catch let error as AVSpeechTTSError {
+            if case .invalidSSML = error {
+                // expected
+            }
+            else {
+                XCTFail("Unexpected AVSpeechTTSError: \(error)")
+            }
+        }
+        catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
 }
