@@ -24,7 +24,7 @@ final class WyomingServer: LifecycleHandler, @unchecked Sendable {
         port: Int,
         ttsService: any TTSService,
         sttService: any STTService,
-        sttInfo: STTInfo = .parakeet,
+        sttInfo: STTInfo = .parakeet(),
         logger: Logger
     ) {
         self.host = host

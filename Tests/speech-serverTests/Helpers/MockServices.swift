@@ -12,19 +12,31 @@ struct MockTTSService: TTSService {
     let sampleRate: Int
     let defaultVoice: String
     let availableVoices: [String]
+    /// Maps voice name -> language code for testing language(for:).
+    let voiceLanguages: [String: String]
 
     init(
         chunks: [Data] = [],
         shouldFail: Bool = false,
         sampleRate: Int = 24_000,
         defaultVoice: String = "alba",
-        availableVoices: [String] = ["alba"]
+        availableVoices: [String] = ["alba"],
+        voiceLanguages: [String: String] = ["alba": "en"]
     ) {
         self.chunks = chunks
         self.shouldFail = shouldFail
         self.sampleRate = sampleRate
         self.defaultVoice = defaultVoice
         self.availableVoices = availableVoices
+        self.voiceLanguages = voiceLanguages
+    }
+
+    func language(for voiceName: String) -> String {
+        voiceLanguages[voiceName.lowercased()] ?? "en"
+    }
+
+    func languages(for voiceName: String) -> [String] {
+        [language(for: voiceName)]
     }
 
     func synthesize(text: String, voice: String) async throws -> Data {
