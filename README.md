@@ -32,7 +32,7 @@ The example config is installed at `$(brew --prefix)/etc/speech-server/speech-se
 brew services restart macos-speech-server
 ```
 
-Logs are written to `$(brew --prefix)/var/log/speech-server.log`; the working directory is `$(brew --prefix)/var/speech-server`.
+The working directory is `$(brew --prefix)/var/speech-server`; logs are written to `speech-server.log` inside it.
 
 On first start the server downloads ASR/TTS models -- roughly 700 MB with the default engines, up to ~1.75 GB if you switch to the `qwen3` `f32` variant -- into `~/Library/Application Support/FluidAudio` and `~/.cache/fluidaudio`. This takes several minutes and prints nothing at the default `log_level: notice`; set `log_level: info` in the config to watch progress.
 
@@ -72,6 +72,8 @@ sudo launchctl print system/sh.brew.macos-speech-server
 dscl . -read /Users/_speech-server NFSHomeDirectory UniqueID
 ```
 
+If `launchctl print` shows `state = spawn scheduled` and `last exit code = 78: EX_CONFIG`, launchd could not open the working directory or log file as `_speech-server` -- the process never started, so nothing is logged. Re-run the `chown` line from step 2 and restart.
+
 Models are then cached under `$(brew --prefix)/var/speech-server/Library/Application Support/FluidAudio` and `$(brew --prefix)/var/speech-server/.cache/fluidaudio`. After editing the config, restart with:
 
 ```bash
@@ -86,10 +88,12 @@ sudo sysadminctl -deleteUser _speech-server
 sudo rm -rf "$(brew --prefix)/var/speech-server"
 ```
 
-**Don't run the per-user and the system service at the same time** -- they'll fight over the same ports. If you switch from the system service back to the per-user one, the log file is left root-owned; remove it first:
+**Don't run the per-user and the system service at the same time** -- they'll fight over the same ports. If you switch from the system service back to the per-user one, the working directory (and the log inside it) is still owned by `_speech-server`; hand it back to your user first:
 
 ```bash
-sudo rm "$(brew --prefix)/var/log/speech-server.log"
+sudo brew services stop macos-speech-server
+sudo chown -R "$(id -un)" "$(brew --prefix)/var/speech-server"
+brew services start macos-speech-server
 ```
 
 ### Upgrading
@@ -115,54 +119,7 @@ Bottles are built for Apple Silicon on macOS 15+. On macOS 14 or Intel, Homebrew
 
 ### Migrating from the old deploy/ scripts
 
-Earlier versions of this project shipped `deploy/install-agent.sh` and `deploy/install-daemon.sh`,
-which installed a launchd job labelled `com.local.speech-server`. That job is not related to the
-Homebrew service and keeps holding ports 8080/10300 if left running, so remove it in two steps
-around `brew install`:
-
-**1. Before `brew install` -- stop and remove the old job and binary:**
-
-```bash
-# Per-user LaunchAgent
-launchctl bootout "gui/$(id -u)/com.local.speech-server" 2>/dev/null || true
-rm -f ~/Library/LaunchAgents/com.local.speech-server.plist ~/bin/speech-server
-
-# System LaunchDaemon
-sudo launchctl bootout system/com.local.speech-server 2>/dev/null || true
-sudo rm -f /Library/LaunchDaemons/com.local.speech-server.plist /usr/local/bin/speech-server
-```
-
-On Intel Macs Homebrew lives in `/usr/local`, so the old binary must be gone before installing --
-otherwise the formula cannot link its own `speech-server` into `/usr/local/bin`.
-
-**2. After `brew install`, before `brew services start` -- optional: keep your old settings by copying them over the freshly installed example:**
-
-```bash
-# Per-user config
-cp ~/.config/speech-server/speech-server.yaml "$(brew --prefix)/etc/speech-server/speech-server.yaml"
-
-# System config
-sudo cp /etc/speech-server/speech-server.yaml "$(brew --prefix)/etc/speech-server/speech-server.yaml"
-```
-
-The old daemon installer created a `_speech-server` account with home `/Users/_speech-server`. If
-you want the new [system service](#run-at-system-startup-optional), either reuse that account --
-skip step 1 (`sysadminctl -addUser`) and run only step 2 (the `dscl`/`mkdir`/`chown` lines,
-which repoint its home at `$(brew --prefix)/var/speech-server` and create that directory) and
-step 3 (`sudo brew services start`). Optionally move the old model cache first so it doesn't
-re-download:
-
-```bash
-sudo ditto "/Users/_speech-server/Library/Application Support/FluidAudio" \
-  "$(brew --prefix)/var/speech-server/Library/Application Support/FluidAudio"
-sudo ditto "/Users/_speech-server/.cache/fluidaudio" \
-  "$(brew --prefix)/var/speech-server/.cache/fluidaudio"
-```
-
-Or remove the old account first with
-`sudo sysadminctl -deleteUser _speech-server && sudo rm -rf /Users/_speech-server` and follow the
-system-startup section from scratch. Old logs in `~/Library/Logs/speech-server/` or
-`/var/log/speech-server/` can be deleted.
+If you installed a pre-0.1 version with `deploy/install-agent.sh` or `deploy/install-daemon.sh`, the old `com.local.speech-server` launchd job must be removed **before** `brew install`. See [docs/upgrading-pre-0_1.md](docs/upgrading-pre-0_1.md) for the steps, including how to keep your old config and model cache.
 
 ## Quick start (from source)
 
