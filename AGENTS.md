@@ -453,15 +453,16 @@ in favor of the formula's `service do` block, which generates and manages the pl
 |---|---|---|
 | Binary | `$(brew --prefix)/bin/speech-server` | same |
 | Config | `$(brew --prefix)/etc/speech-server/speech-server.yaml` | same |
-| Logs | `$(brew --prefix)/var/log/speech-server.log` | same path, but root-owned |
-| Working dir | `$(brew --prefix)/var/speech-server` | same |
+| Logs | `$(brew --prefix)/var/speech-server/speech-server.log` | same path, owned by `_speech-server` |
+| Working dir | `$(brew --prefix)/var/speech-server` | same, owned by `_speech-server` |
 | Model caches | `~/Library/Application Support/FluidAudio`, `~/.cache/fluidaudio` (invoking user) | `$(brew --prefix)/var/speech-server/Library/Application Support/FluidAudio`, `$(brew --prefix)/var/speech-server/.cache/fluidaudio` |
 | launchd plist | `~/Library/LaunchAgents/sh.brew.macos-speech-server.plist` | `/Library/LaunchDaemons/sh.brew.macos-speech-server.plist` |
 | Runs as | invoking user | `_speech-server` role account |
 
 **Service block semantics**: the formula's `service do` block runs `speech-server serve` with
 `SPEECH_SERVER_CONFIG` set to the config path above, and sets `working_dir`/`log_path` to the
-locations in the table. `brew services start|stop|restart macos-speech-server` manages the
+locations in the table. The log deliberately lives *inside* `working_dir` rather than under
+`var/log` — see the launchd gotcha below. `brew services start|stop|restart macos-speech-server` manages the
 per-user LaunchAgent; adding `sudo` plus `--sudo-service-user _speech-server` switches Homebrew
 to installing a system LaunchDaemon that runs as that role account instead of root. Don't run
 both modes at once — they bind the same ports. The README's system-startup sequence therefore
@@ -483,6 +484,18 @@ per-user LaunchAgent starts. In system mode nothing starts the per-user LaunchAg
 directory must be created manually (`sudo mkdir -p`) before `chown`. See README → Installation →
 Run at system startup (optional) for the full three-step sequence.
 
+**launchd `EX_CONFIG` (exit 78) gotcha / why the log lives in `working_dir`**: with
+`--sudo-service-user`, launchd opens `StandardOutPath`/`StandardErrorPath` *as the service user*,
+after dropping privileges. `brew services start` creates the parent directories of `working_dir`
+and `log_path` (`service.path_dirs.each(&:mkpath)` in Homebrew's `services/cli.rb`) but never
+chowns them to the `--sudo-service-user` account. A log under `var/log` therefore cannot be
+created by `_speech-server` (the directory is owned by the Homebrew user, and the role account is
+not in `admin`), launchd fails before spawning the binary, and `launchctl print` shows
+`state = spawn scheduled`, `last exit code = 78: EX_CONFIG` with an empty/absent log. The formula
+avoids this by putting the log at `var/speech-server/speech-server.log`, inside the directory the
+role account already owns after the documented `chown -R`. Don't move it back to `var/log`
+without also adding a `sudo touch` + `sudo chown` step to the README and formula caveats.
+
 **Migration from `deploy/`**: pre-Homebrew versions installed a launchd job labelled
 `com.local.speech-server` via `deploy/install-agent.sh` / `deploy/install-daemon.sh`, at
 `~/Library/LaunchAgents/com.local.speech-server.plist` (or the daemon equivalent under
@@ -492,8 +505,9 @@ Run at system startup (optional) for the full three-step sequence.
 **before `brew install`**, not just before the service starts -- on Intel Macs Homebrew's prefix
 is `/usr/local`, so the stale `/usr/local/bin/speech-server` collides with the formula's own
 symlink and `brew install` fails to link. Old config can be copied over the freshly installed
-example afterward. See README → Installation → Migrating from the old deploy/ scripts for the
-exact commands and order.
+example afterward. The user-facing steps live in `docs/upgrading-pre-0_1.md` (linked from README →
+Installation → Migrating from the old deploy/ scripts); keep migration detail there, not in the
+README.
 
 **Why no `depends_on xcode:`**: the formula does not declare an Xcode dependency. Building with
 Swift 6.2 only requires the Command Line Tools (`swift build` works without a full Xcode
@@ -505,10 +519,14 @@ location for installed config, and its `InstallRenamed` resource behavior means 
 user-edited `speech-server.yaml` is preserved across upgrades — the new version's example is
 written alongside it as `speech-server.yaml.default` instead of overwriting the live config.
 
-**Log-ownership gotcha**: the system-service log file (`$(brew --prefix)/var/log/speech-server.log`)
-is root-owned when running under `--sudo-service-user`. Switching back to the per-user service
-without removing it first causes a permission error on write; `sudo rm` the log file before
-switching modes (see README → Installation → Run at system startup).
+**Ownership when switching modes**: in system mode `$(brew --prefix)/var/speech-server` (working
+dir, log, and the role account's model caches) is owned by `_speech-server`, so the per-user
+service cannot write there afterwards. Switching back requires
+`sudo chown -R "$(id -un)" "$(brew --prefix)/var/speech-server"` (see README → Installation → Run
+at system startup). Note: the log is *not* root-owned under `--sudo-service-user` — launchd opens
+it as the service user. A root-owned log only happens if `sudo brew services start` was run
+*without* `--sudo-service-user`, which runs the daemon as root and makes Homebrew take
+`root:admin` ownership of the formula paths; avoid that mode.
 
 ## Release process
 
