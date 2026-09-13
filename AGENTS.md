@@ -201,6 +201,16 @@ response headers are sent the status code cannot be changed to 4xx.
 4. No stored `AVSpeechSynthesizer` — a new instance is created per `write()` call. All stored
    properties are immutable `let`, giving genuine (not `@unchecked`) `Sendable` conformance.
 
+**Voice inventory is per login session**: `speechVoices()` only includes downloaded
+Enhanced/Premium and MobileAsset voices when the process belongs to a user with an active GUI
+login session -- enumeration goes through per-user agents (e.g. `com.apple.accessibility.axassetsd`)
+that live in that user's launchd domain. Under a LaunchDaemon (including a `--sudo-service-user`
+daemon, which has no GUI session either) only the ~74 legacy built-in compact voices under
+`/System/Library/Speech/Voices` appear. Enhanced/Premium voices enumerate as separate names with
+the quality suffix (e.g. `Daniel (Enhanced)`, `Zoe (Premium)`), and the voice identifier can
+differ from the display name (e.g. `Jamie (Premium)` = `com.apple.voice.premium.en-GB.Malcolm`).
+See "System mode only sees the built-in compact voices" under Distribution (Homebrew) below.
+
 **`AVSpeechSynthesizer.write()` is asynchronous**: the call returns immediately; buffer callbacks
 fire on a background thread. The zero-length buffer (`frameLength == 0`) signals completion.
 The bridge class uses a `CheckedContinuation` to map this callback API to `async/await`.
@@ -481,7 +491,7 @@ or model downloads go to `/var/empty` and fail. The formula itself does not crea
 `$(brew --prefix)/var/speech-server` at install time — it has no `post_install` (removed per
 Homebrew's style rules); the directory is created by `brew services start` the first time the
 per-user LaunchAgent starts. In system mode nothing starts the per-user LaunchAgent first, so the
-directory must be created manually (`sudo mkdir -p`) before `chown`. See README → Installation →
+directory must be created manually (`sudo mkdir -p`) before `chown`. See `docs/install.md` →
 Run at system startup (optional) for the full three-step sequence.
 
 **launchd `EX_CONFIG` (exit 78) gotcha / why the log lives in `working_dir`**: with
@@ -505,9 +515,9 @@ without also adding a `sudo touch` + `sudo chown` step to the README and formula
 **before `brew install`**, not just before the service starts -- on Intel Macs Homebrew's prefix
 is `/usr/local`, so the stale `/usr/local/bin/speech-server` collides with the formula's own
 symlink and `brew install` fails to link. Old config can be copied over the freshly installed
-example afterward. The user-facing steps live in `docs/upgrading-pre-0_1.md` (linked from README →
-Installation → Migrating from the old deploy/ scripts); keep migration detail there, not in the
-README.
+example afterward. The user-facing steps live in `docs/upgrading-pre-0_1.md` (linked from
+`docs/install.md` → Migrating from the old deploy/ scripts); keep migration detail there, not in
+the README.
 
 **Why no `depends_on xcode:`**: the formula does not declare an Xcode dependency. Building with
 Swift 6.2 only requires the Command Line Tools (`swift build` works without a full Xcode
@@ -522,11 +532,35 @@ written alongside it as `speech-server.yaml.default` instead of overwriting the 
 **Ownership when switching modes**: in system mode `$(brew --prefix)/var/speech-server` (working
 dir, log, and the role account's model caches) is owned by `_speech-server`, so the per-user
 service cannot write there afterwards. Switching back requires
-`sudo chown -R "$(id -un)" "$(brew --prefix)/var/speech-server"` (see README → Installation → Run
-at system startup). Note: the log is *not* root-owned under `--sudo-service-user` — launchd opens
-it as the service user. A root-owned log only happens if `sudo brew services start` was run
+`sudo chown -R "$(id -un)" "$(brew --prefix)/var/speech-server"` (see `docs/install.md` →
+Switching between the per-user and the system service). Note: the log is *not* root-owned under
+`--sudo-service-user` — launchd opens it as the service user. A root-owned log only happens if `sudo brew services start` was run
 *without* `--sudo-service-user`, which runs the daemon as root and makes Homebrew take
 `root:admin` ownership of the formula paths; avoid that mode.
+
+**System mode only sees the built-in compact voices**: running the server as the system
+LaunchDaemon (`sudo brew services start … --sudo-service-user _speech-server`) makes
+`AVSpeechSynthesisVoice.speechVoices()` return only the ~74 legacy built-in compact voices under
+`/System/Library/Speech/Voices`. Every downloaded Enhanced/Premium voice (`Zoe (Premium)`,
+`Daniel (Enhanced)`) and every MobileAsset voice (multi-locale Eddy/Flo/Grandma/Grandpa/Reed/
+Rocko/Sandy/Shelley, Aman, Aru, Susan, Tara) is missing -- a logged-in GUI user sees 180+ instead.
+Mechanism: the voice files themselves are world-readable under
+`/System/Library/AssetsV2/com_apple_MobileAsset_TTSAXResourceModelAssets`, but enumeration goes
+through per-user agents (`com.apple.accessibility.axassetsd`, audio-unit speech providers) that
+only exist in a logged-in user's launchd domain; a LaunchDaemon lives in the system domain (a
+`--sudo-service-user` daemon too) and has no such session. Verified: voices downloaded by one user
+are visible to a *different* logged-in user, even over SSH, so the limiting factor is the GUI
+login session, not who downloaded the voice. Web research turned up no workaround -- not
+`launchctl asuser`, `user/<uid>` launchd domains, copying prefs/assets across users, or running a
+private per-user helper daemon. The per-user service (`brew services start macos-speech-server`,
+with automatic login configured for boot-time start) is the fix, not a workaround for the system
+service. This was mistaken for a regression from PR #23 during investigation -- that PR only
+changed the per-voice `languages` field in the Wyoming `describe`/`info` event, not voice
+enumeration. Don't re-diagnose this as a `describe`/Wyoming bug: compare `say -v '?'` run as the
+logged-in GUI user against the server's `describe` (Wyoming) or voices output while running under
+each mode. The warning lives in the README's Installation → Advanced installation subsection and
+at the top of `docs/install.md` → Run at system startup (optional); the tap formula's caveats
+carry the same warning for `brew info` / `brew services` output.
 
 ## Release process
 
@@ -585,5 +619,5 @@ All changes must go through a pull request. Never push directly to `main`.
 - **STTService protocol**: `transcribe(audioURL: URL)` returns `TranscriptionResult` (with `text` and `duration`), not a plain `String`. The URL points to a temp file with the correct audio extension, created and cleaned up by the controller. The `verbose_json` response includes a `segments` array matching the OpenAI API shape.
 - **Audio format detection**: lives in `AudioFormatDetection.swift` as a package-internal free function `audioFileExtension(filename:header:)`. `header` is the first 12 bytes of the audio data (`Data`). Called from `TranscriptionController`, not from `FluidSTTService`. `File.contentType` in Vapor is derived from the filename extension and may be `nil` -- always use `audioFileExtension` instead.
 - **TTS voice validation**: `SpeechController` validates the voice with `ttsService.availableVoices.contains(voice)` before starting the stream (response headers already sent → can't return 4xx after). The unrecognised-voice error lists up to 5 available voices in its message. `FluidTTSService` still catches `PocketTtsConstantsLoader.LoadError.fileNotFound` and re-throws as `FluidTTSError.voiceNotFound` as a safety net, but this should only be reached if the guard is missing.
-- **Keeping docs in sync**: When making any user-visible change (new endpoint, changed behaviour, new field, new error), update `README.md`. When making any architectural change (new service, new constraint, new convention, new gotcha), update `AGENTS.md`. Both files should be updated in the same commit as the code change.
+- **Keeping docs in sync**: When making any user-visible change (new endpoint, changed behaviour, new field, new error), update `README.md`. When making any architectural change (new service, new constraint, new convention, new gotcha), update `AGENTS.md`. Both files should be updated in the same commit as the code change. Advanced installation instructions (system-service setup, switching between per-user and system modes, upgrading the system service, migrating from the old `deploy/` scripts) live in `docs/install.md`, not the README. The README's Installation section must stay short (2-3 lines of CLI, per-user `brew services start`) and link to `docs/install.md` via its "Advanced installation" subsection for anything beyond that.
 - **TDD convention**: Unit tests are written BEFORE the implementation they cover. When implementing a feature, write the test file first (it will fail to compile until the implementation is added), then write the implementation. This ensures tests actually define the contract, not just document it.

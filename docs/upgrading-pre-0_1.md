@@ -48,7 +48,7 @@ continue below for a system service.
 ## 4. System service: reusing the old `_speech-server` account
 
 The old daemon installer created a `_speech-server` account with home `/Users/_speech-server`.
-If you want the new [system service](../README.md#run-at-system-startup-optional), either reuse
+If you want the new [system service](install.md#run-at-system-startup-optional), either reuse
 that account or start from scratch.
 
 **Reuse it**: skip step 1 of the system-startup section (`sysadminctl -addUser`) and run only
