@@ -46,55 +46,11 @@ curl -sf -X POST http://127.0.0.1:8080/v1/audio/speech \
 
 By default the server only listens on `127.0.0.1` (HTTP port 8080, Wyoming port 10300; set `wyoming.port: 0` to disable Wyoming). To reach it from other machines, change `servers.http.host` / `servers.wyoming.host` -- see [Accessing from other machines](#accessing-from-other-machines).
 
-### Run at system startup (optional)
+### Advanced installation
 
-The per-user LaunchAgent above only runs while you're logged in. For a server that starts at boot without a login session, running under a dedicated least-privilege account, use Homebrew's built-in system-service support (Apple's role-account pattern -- no custom scripts):
+Running as a system service at boot (dedicated role account), switching between the per-user and system service, and migrating from the old `deploy/` scripts are covered in [docs/install.md](docs/install.md).
 
-```bash
-# 1. Create the role account. Pick an unused UID in 450-499; this lists the ones already taken:
-#    dscl . -list /Users UniqueID | awk '$2 >= 450 && $2 <= 499'
-sudo sysadminctl -addUser _speech-server -fullName "Speech Server" -UID 450 -roleAccount
-
-# 2. Point its home at the data directory (sysadminctl ignores -home for role accounts)
-sudo dscl . -create /Users/_speech-server NFSHomeDirectory "$(brew --prefix)/var/speech-server"
-sudo mkdir -p "$(brew --prefix)/var/speech-server"
-sudo chown -R _speech-server "$(brew --prefix)/var/speech-server"
-
-# 3. Stop the per-user service if it is running, then start the system service at boot
-brew services stop macos-speech-server 2>/dev/null || true
-sudo brew services start macos-speech-server --sudo-service-user _speech-server
-```
-
-Verify it's running:
-
-```bash
-sudo launchctl print system/sh.brew.macos-speech-server
-dscl . -read /Users/_speech-server NFSHomeDirectory UniqueID
-```
-
-If `launchctl print` shows `state = spawn scheduled` and `last exit code = 78: EX_CONFIG`, launchd could not open the working directory or log file as `_speech-server` -- the process never started, so nothing is logged. Re-run the `chown` line from step 2 and restart.
-
-Models are then cached under `$(brew --prefix)/var/speech-server/Library/Application Support/FluidAudio` and `$(brew --prefix)/var/speech-server/.cache/fluidaudio`. After editing the config, restart with:
-
-```bash
-sudo brew services restart macos-speech-server --sudo-service-user _speech-server
-```
-
-To remove the system service:
-
-```bash
-sudo brew services stop macos-speech-server
-sudo sysadminctl -deleteUser _speech-server
-sudo rm -rf "$(brew --prefix)/var/speech-server"
-```
-
-**Don't run the per-user and the system service at the same time** -- they'll fight over the same ports. If you switch from the system service back to the per-user one, the working directory (and the log inside it) is still owned by `_speech-server`; hand it back to your user first:
-
-```bash
-sudo brew services stop macos-speech-server
-sudo chown -R "$(id -un)" "$(brew --prefix)/var/speech-server"
-brew services start macos-speech-server
-```
+> **Warning: macOS system voices are limited under the system service.** A LaunchDaemon has no GUI login session, so `AVSpeechSynthesizer` only sees the ~70 built-in compact voices. Enhanced/Premium voices you downloaded (`Zoe (Premium)`, `Daniel (Enhanced)`, …) and the multi-locale voices (Eddy, Flo, Grandma, Grandpa, Reed, Rocko, Sandy, Shelley, …) are not listed and cannot be used. There is no known workaround. To use them with the `avspeech` engine, run the per-user service (`brew services start macos-speech-server`) as a user who stays logged in, and enable automatic login if the Mac must serve after a reboot. Voices downloaded by any user on the Mac are visible to every logged-in user. `pocket_tts` and `kokoro` are unaffected.
 
 ### Upgrading
 
@@ -103,23 +59,13 @@ brew upgrade macos-speech-server
 brew services restart macos-speech-server
 ```
 
-If you run the system service instead, restart it with:
-
-```bash
-sudo brew services restart macos-speech-server --sudo-service-user _speech-server
-```
-
-`brew upgrade` itself is run as your normal user in both cases -- only the restart differs.
-
 Your edited config is preserved; the new example config is written alongside it as `speech-server.yaml.default` so you can diff in any new options.
+
+If you run the system service, see [docs/install.md#upgrading-the-system-service](docs/install.md#upgrading-the-system-service) instead.
 
 ### Platform notes
 
 Bottles are built for Apple Silicon on macOS 15+. On macOS 14 or Intel, Homebrew builds from source, which requires Swift 6.2 (Xcode 26 or matching Command Line Tools, macOS 15+) -- so macOS 14 currently can't install via Homebrew, and Intel Macs always build from source.
-
-### Migrating from the old deploy/ scripts
-
-If you installed a pre-0.1 version with `deploy/install-agent.sh` or `deploy/install-daemon.sh`, the old `com.local.speech-server` launchd job must be removed **before** `brew install`. See [docs/upgrading-pre-0_1.md](docs/upgrading-pre-0_1.md) for the steps, including how to keep your old config and model cache.
 
 ## Quick start (from source)
 
@@ -235,6 +181,8 @@ say --voice '?'
 
 The short name (e.g. `Samantha`, `Daniel`, `Karen`) is used in API requests. Voice names are case-insensitive; full identifiers (e.g. `com.apple.voice.enhanced.en-US.Samantha`) also work.
 
+**Enhanced and Premium voices.** Download them in System Settings > Accessibility > Spoken Content (on macOS 15+ via the VoiceOver Utility voice list). They appear as separate voices named with their quality, e.g. `Daniel` and `Daniel (Enhanced)`, `Zoe (Premium)`; pass that full display name as `voice`. Prefer names over identifiers because the identifier can differ from the name (`Jamie (Premium)` is `com.apple.voice.premium.en-GB.Malcolm`). These voices are **not available under the system service** -- see the warning in [Installation](#advanced-installation).
+
 > **Note:** Siri voices are not accessible via public AVFoundation APIs and will not appear in the voice list.
 > Personal Voice support (macOS 14+) is planned — see issue #13.
 
@@ -279,7 +227,7 @@ Vapor's `--hostname` and `--port` CLI flags also work and take highest priority 
 
 ## Deployment
 
-Deployment is handled entirely by Homebrew -- see [Installation](#installation). Use `brew services start macos-speech-server` for a per-user service, or the [system startup](#run-at-system-startup-optional) section for a boot-time service running under a dedicated role account.
+Deployment is handled entirely by Homebrew -- see [Installation](#installation). Use `brew services start macos-speech-server` for a per-user service, or [docs/install.md#run-at-system-startup-optional](docs/install.md#run-at-system-startup-optional) for a boot-time service running under a dedicated role account (note the system-voice limitation described there).
 
 ## API
 
