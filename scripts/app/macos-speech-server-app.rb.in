@@ -1,0 +1,72 @@
+class MacosSpeechServerApp < Formula
+  desc "Native Mac interface for private speech services, with a bundled server"
+  homepage "https://github.com/dokterbob/macos-speech-server"
+  url "@SOURCE_URL@"
+  version "@VERSION@"
+  sha256 "@SHA256@"
+  license "AGPL-3.0-only"
+  head "https://github.com/dokterbob/macos-speech-server.git", branch: "main"
+
+  depends_on arch: :arm64
+  depends_on macos: :sequoia
+
+  def install
+    # Full Xcode is optional; Swift 6.2+ from the Command Line Tools is also supported.
+    if MacOS::Xcode.installed? && MacOS::Xcode.version >= "26"
+      ENV["DEVELOPER_DIR"] = MacOS::Xcode.prefix.to_s
+      ENV["HOMEBREW_DEVELOPER_DIR"] = MacOS::Xcode.prefix.to_s
+      ENV["SDKROOT"] = MacOS::Xcode.sdk_path.to_s
+      ENV["HOMEBREW_SDKROOT"] = MacOS::Xcode.sdk_path.to_s
+    end
+
+    ENV["APP_VERSION"] = version.to_s.split("-").first
+    ENV["APP_BUILD"] = "1" # Runtime reconciliation uses a content hash, not this display build number.
+    ENV["SWIFT_BUILD_DISABLE_SANDBOX"] = "1" # Homebrew already sandboxes the build.
+    system "bash", "scripts/app/build.sh"
+    libexec.install "dist/Speech Server.app"
+
+    # Avoid colliding with the independent macos-speech-server formula's speech-server binary.
+    (bin/"speech-server-app").write <<~SH
+      #!/bin/bash
+      exec /usr/bin/open "#{opt_libexec}/Speech Server.app" --args "$@"
+    SH
+    (bin/"speech-server-app-cli").write <<~SH
+      #!/bin/bash
+      exec "#{opt_libexec}/Speech Server.app/Contents/MacOS/speech-server" "$@"
+    SH
+    (bin/"speech-server-app").chmod 0755
+    (bin/"speech-server-app-cli").chmod 0755
+  end
+
+  def caveats
+    <<~EOS
+      Open the app: speech-server-app
+      App bundle:  #{opt_libexec}/Speech Server.app
+
+      Choose Set Up & Start in the app. It configures a per-user LaunchAgent;
+      no sudo, Developer ID certificate, or brew services command is needed.
+      macOS can still show a background-item notification or require approval.
+      Keep the standalone CLI service stopped if it uses the same ports.
+
+      After brew upgrade #{name}, quit and reopen the app to restart its agent
+      with the new version. Homebrew owns updates; there is no in-app updater.
+      Before brew uninstall #{name}, use Disable Background Service in the app
+      or run: speech-server-app-cli service --app disable
+
+      Config: ~/Library/Application Support/Speech Server/speech-server.yaml
+      Logs:   ~/Library/Logs/Speech Server/
+      Models download on first start and remain cached between upgrades.
+    EOS
+  end
+
+  test do
+    (testpath/"settings.yaml").write "{}\n"
+    app = libexec/"Speech Server.app"
+    output = shell_output("\"#{bin}/speech-server-app-cli\" config validate #{testpath}/settings.yaml --json")
+    assert_equal 8080, JSON.parse(output).fetch("configuration").fetch("config").fetch("servers").fetch("http").fetch("port")
+    assert_predicate app/"Contents/MacOS/speech-server-agent", :executable?
+    assert_match "--app", shell_output("\"#{bin}/speech-server-app-cli\" service --help")
+    refute_predicate app/"Contents/Frameworks/Sparkle.framework", :exist?
+    system "/usr/bin/codesign", "--verify", "--deep", "--strict", app
+  end
+end

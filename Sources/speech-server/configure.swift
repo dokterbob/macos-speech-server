@@ -1,4 +1,5 @@
 import FluidAudio
+import SpeechServerManagement
 import Vapor
 
 func configure(_ app: Application) async throws {
@@ -38,6 +39,8 @@ func configure(_ app: Application) async throws {
     app.middleware.use(RequestLoggingMiddleware())
     app.middleware.use(OpenAIErrorMiddleware())
 
+    StartupEvent.report(.loadingModels, "Loading speech synthesis models (first run downloads models)…")
+
     // TTS engine selection
     switch config.tts.engine {
     case .pocketTts:
@@ -61,6 +64,8 @@ func configure(_ app: Application) async throws {
             "Kokoro TTS ready (\(ttsService.availableVoices.count) voices, default: \(ttsService.defaultVoice))."
         )
     }
+
+    StartupEvent.report(.loadingModels, "Loading transcription models (first run downloads models)…")
 
     // STT engine selection
     switch config.stt.engine {

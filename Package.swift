@@ -6,6 +6,7 @@ let package = Package(
     name: "speech-server",
     platforms: [.macOS(.v14)],
     dependencies: [
+        .package(path: "Management"),
         .package(url: "https://github.com/vapor/vapor.git", from: "4.76.0"),
         // FluidAudio 0.13.4+ fixes Swift 6.3 concurrency errors in StreamingAsrManager
         // (FluidInference/FluidAudio#448).
@@ -21,8 +22,12 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
+            name: "speech-server-agent", dependencies: [.product(name: "SpeechServerManagement", package: "Management")]
+        ),
+        .executableTarget(
             name: "speech-server",
             dependencies: [
+                .product(name: "SpeechServerManagement", package: "Management"),
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "MultipartKit", package: "multipart-kit"),
@@ -39,7 +44,7 @@ let package = Package(
                 .product(name: "Yams", package: "Yams"),
             ],
             resources: [
-                .copy("Fixtures"),
+                .copy("Fixtures")
             ]
         ),
     ]

@@ -621,3 +621,47 @@ All changes must go through a pull request. Never push directly to `main`.
 - **TTS voice validation**: `SpeechController` validates the voice with `ttsService.availableVoices.contains(voice)` before starting the stream (response headers already sent → can't return 4xx after). The unrecognised-voice error lists up to 5 available voices in its message. `FluidTTSService` still catches `PocketTtsConstantsLoader.LoadError.fileNotFound` and re-throws as `FluidTTSError.voiceNotFound` as a safety net, but this should only be reached if the guard is missing.
 - **Keeping docs in sync**: When making any user-visible change (new endpoint, changed behaviour, new field, new error), update `README.md`. When making any architectural change (new service, new constraint, new convention, new gotcha), update `AGENTS.md`. Both files should be updated in the same commit as the code change. Advanced installation instructions (system-service setup, switching between per-user and system modes, upgrading the system service, migrating from the old `deploy/` scripts) live in `docs/install.md`, not the README. The README's Installation section must stay short (2-3 lines of CLI, per-user `brew services start`) and link to `docs/install.md` via its "Advanced installation" subsection for anything beyond that.
 - **TDD convention**: Unit tests are written BEFORE the implementation they cover. When implementing a feature, write the test file first (it will fail to compile until the implementation is added), then write the implementation. This ensures tests actually define the contract, not just document it.
+
+
+## Optional native Mac app
+
+`Management/` is a separate Swift package containing shared configuration types, validation,
+versioned local management messages, a private Unix socket transport, CLI dispatch, and the
+supervisor actor. The server retains type aliases in `ServerConfig.swift` for existing code/tests;
+Vapor DI stays in the server target. `App/` is a separate SwiftUI executable package (macOS 15+,
+Apple Silicon distribution). It has no updater dependency: Homebrew owns updates.
+
+The app is distributed by the **macos-speech-server-app formula**, not a cask. It bundles its
+own server and exposes `speech-server-app` (GUI launcher) and `speech-server-app-cli` (bundled CLI),
+avoiding a collision with the independent CLI formula. The formula installs only inside its prefix.
+`scripts/app/make-formula.py` renders a checksummed source formula from a release or commit archive.
+The tap's existing test-bot/publish workflows build and publish bottles. Its `--skip-new` flag skips
+extra new-formula audits, not builds. Workflow-file pushes remain a maintainer responsibility.
+
+`LaunchAgentController` creates a conventional user LaunchAgent in `~/Library/LaunchAgents` and
+uses `/bin/launchctl` with argument arrays targeting `gui/<uid>`. It does not use SMAppService,
+root helpers or Apple-issued certificates. The generated job starts `speech-server-agent` using
+Homebrew's stable opt path. Registration operations use an exclusive file lock and verify ownership
+before touching an existing plist. The GUI reconciles an enabled agent after a build changes,
+preserving running/stopped intent. Disabled jobs are never automatically enabled. Users disable the
+agent before uninstalling the formula. Quitting the GUI leaves the service running.
+
+First registration starts an idle supervisor; onboarding explicitly starts speech after saving
+preferences. Login startup uses boot time plus audit session ID; an agent restart within the same
+session preserves Stop. The agent holds a lifetime flock, uses a 0700 runtime directory and 0600
+socket, verifies same-UID peers, limits messages to 2 MB, and bounds transport timeouts. No management
+HTTP routes are exposed. A server's executable is resolved to the same keg as its running agent.
+After upgrading, users quit/reopen the app to reconcile the agent before restarting speech.
+
+Management commands are intercepted before Vapor/model initialization. Existing server invocation,
+YAML discovery, HTTP/Wyoming interfaces, and formula operation remain independent. The managed
+child gets an explicit config path and private startup-status file; environment port overrides
+are not inherited. Readiness is emitted after `app.startup()` binds both listeners. Config saves
+require a revision, write atomically, retain a previous version, and distinguish active settings.
+
+Run `swift test --package-path Management` for model-free management/registration tests and
+`swift build --package-path App` for the GUI. Format all source roots:
+`swift format --in-place --recursive Sources/ Tests/ Management/Sources/ Management/Tests/ App/Sources/`.
+The normal `swift test` remains required for server changes. `scripts/app/check.sh` checks the new
+packages and the ad-hoc signed bundle. Clean-Mac bottle/LaunchAgent acceptance tests and the release
+workflow are in `docs/mac-app.md`. Do not reintroduce a paid-signing requirement for this distribution.
