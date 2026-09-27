@@ -66,18 +66,10 @@ func configure(_ app: Application) async throws {
     switch config.stt.engine {
     case .parakeet:
         let sttService = FluidSTTService()
-        let modelVersionStr = config.stt.parakeet?.modelVersion ?? "v3"
-        let modelVersion: AsrModelVersion =
-            switch modelVersionStr {
-            case "v2": .v2
-            case "v3": .v3
-            default:
-                throw Abort(
-                    .internalServerError,
-                    reason: "Unknown STT model_version '\(modelVersionStr)'; valid values are 'v2' and 'v3'.")
-            }
-        app.logger.info("Loading ASR models (Parakeet \(modelVersionStr), first run will download ~minutes)...")
-        try await sttService.initialize(modelVersion: modelVersion)
+        let modelVersion = config.stt.parakeet.modelVersion
+        app.logger.info(
+            "Loading ASR models (Parakeet \(modelVersion.rawValue), first run will download ~minutes)...")
+        try await sttService.initialize(modelVersion: modelVersion.asrModelVersion)
         app.sttService = sttService
         app.logger.info("ASR models loaded. Server ready.")
     }
@@ -97,7 +89,7 @@ func configure(_ app: Application) async throws {
     else {
         wyomingPort = config.servers.wyoming.port
     }
-    let sttInfo = STTInfo.parakeet(modelVersion: config.stt.parakeet?.modelVersion ?? "v3")
+    let sttInfo = STTInfo.parakeet(modelVersion: config.stt.parakeet.modelVersion)
     if wyomingPort > 0 && app.environment != .testing {
         let wyomingServer = WyomingServer(
             host: wyomingHost,

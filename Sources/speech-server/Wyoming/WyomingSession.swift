@@ -23,9 +23,9 @@ struct STTInfo: Sendable {
     let languages: [String]
 
     /// v2 = English-only, v3 = 25 European languages.
-    static func parakeet(modelVersion: String = "v3") -> STTInfo {
+    static func parakeet(modelVersion: ParakeetModelVersion = .v3) -> STTInfo {
         let langs: [String]
-        if modelVersion == "v2" {
+        if modelVersion == .v2 {
             langs = ["en"]
         }
         else {

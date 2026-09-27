@@ -23,6 +23,7 @@ stt:
   engine: parakeet      # Speech-to-text engine: parakeet
   parakeet:
     model_version: v3   # v3 = Parakeet TDT 0.6B v3, multilingual (25 langs, default)
+                        # ultra = Parakeet Ultra, post-trained v3: same 25 langs and speed, lower WER (~630 MB)
                         # v2 = Parakeet TDT 0.6B v2, English-only (higher recall)
 
 tts:

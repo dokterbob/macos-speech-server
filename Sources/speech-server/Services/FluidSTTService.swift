@@ -172,3 +172,15 @@ enum FluidSTTError: Error, CustomStringConvertible {
         }
     }
 }
+
+extension ParakeetModelVersion {
+    /// The FluidAudio model for this config value. FluidAudio's `AsrModelVersion` has no string raw values and
+    /// includes models this server does not offer, so the supported subset is mapped explicitly.
+    var asrModelVersion: AsrModelVersion {
+        switch self {
+        case .v2: .v2
+        case .v3: .v3
+        case .ultra: .ultra
+        }
+    }
+}

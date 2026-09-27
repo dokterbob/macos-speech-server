@@ -75,7 +75,7 @@ Access: `config.logLevel`, `config.servers.http.host`, `config.servers.wyoming.p
 3. Add a `case` in `configure.swift`'s switch to construct and initialize the service
 4. Implement the `STTService`/`TTSService` protocol
 
-**`model_version` in `ParakeetSettings`**: mapped to `AsrModelVersion` in `configure.swift` and passed to `FluidSTTService.initialize(modelVersion:)`. Valid values: `"v3"` (Parakeet TDT 0.6B v3, multilingual, 25 languages, default) and `"v2"` (Parakeet TDT 0.6B v2, English-only, higher recall). Invalid values cause a startup error.
+**`model_version` in `ParakeetSettings`**: decoded as the `ParakeetModelVersion` enum, so an unknown value fails config parsing and the server does not start; omitted means `v3`. `ParakeetModelVersion.asrModelVersion` (in `FluidSTTService.swift`) maps it to FluidAudio's `AsrModelVersion`, which has no string raw values and includes models this server does not offer. Values: `v3` (Parakeet TDT 0.6B v3, multilingual, 25 languages, default), `ultra` (Parakeet Ultra: post-trained v3, same languages/speed/decode path, lower WER, separate ~630 MB model) and `v2` (Parakeet TDT 0.6B v2, English-only, higher recall). `redux` is not offered: it requires macOS 15 (package minimum is 14).
 
 **Partial configs work**: all fields use `decodeIfPresent` with defaults, so a minimal `speech-server.yaml` with only `stt:\n  engine: parakeet` is valid.
 

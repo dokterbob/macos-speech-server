@@ -99,7 +99,7 @@ servers:
 stt:
   engine: parakeet      # parakeet
   parakeet:
-    model_version: v3   # v3 = multilingual (25 langs, default), v2 = English-only
+    model_version: v3   # v3 = multilingual (25 langs, default), ultra = more accurate v3, v2 = English-only
 
 tts:
   engine: pocket_tts    # pocket_tts (default) | avspeech | kokoro
@@ -120,11 +120,13 @@ All fields are optional — omitted fields use the defaults shown above.
 
 | Engine | `engine:` value | Languages | Downloads | Notes |
 |--------|----------------|-----------|-----------|-------|
-| Parakeet TDT | `parakeet` | 25 (v3) or English-only (v2) | ~500 MB on first start | Default, CTC/TDT model, word-level timestamps |
+| Parakeet TDT | `parakeet` | 25 (v3, ultra) or English-only (v2) | ~500 MB on first start | Default, CTC/TDT model, word-level timestamps |
 
 #### `parakeet` (default)
 
-Uses [FluidAudio](https://github.com/FluidInference/FluidAudio)'s Parakeet TDT model (based on NVIDIA's architecture). Supports word-level timestamps and VAD-based segmentation. Two model versions: `v3` (multilingual, 25 languages) and `v2` (English-only, higher recall).
+Uses [FluidAudio](https://github.com/FluidInference/FluidAudio)'s Parakeet TDT model (based on NVIDIA's architecture). Supports word-level timestamps and VAD-based segmentation. Three model versions: `v3` (multilingual, 25 languages, default), `ultra` and `v2` (English-only, higher recall).
+
+`ultra` is [Parakeet Ultra](https://github.com/FluidInference/FluidAudio/blob/main/Documentation/ASR/ParakeetUltra.md), a post-trained v3 with the same 25 languages and speed but lower word error rate: per FluidAudio's benchmarks, LibriSpeech test-other 4.12% → 3.81% and FLEURS (24 languages) 14.81% → 11.67%, better than v3 in every language. It downloads a separate ~630 MB model on first start.
 
 ### TTS engines
 
