@@ -220,7 +220,7 @@ Content-Type: multipart/form-data
 |-------------------|--------|----------|---------------------------------------------------|
 | `file`            | File   | Yes      | Audio file (max 500 MB)                            |
 | `model`           | String | No       | Model name (e.g. `whisper-1`)                      |
-| `language`        | String | No       | ISO-639-1 language code                            |
+| `language`        | String | No       | ISO-639-1 hint (see below) or `auto` (default)     |
 | `prompt`          | String | No       | Context hint for transcription                     |
 | `response_format` | String | No       | `json` (default), `text`, or `verbose_json`; `srt`/`vtt` return 400 |
 | `temperature`     | Double | No       | Sampling temperature, 0.0-1.0                      |
@@ -229,7 +229,9 @@ Supported audio formats: WAV, MP3, M4A, FLAC, AIFF, OGG. Files without a recogni
 
 No API key is required. If your client sends an `Authorization` header it is silently ignored.
 
-The `verbose_json` response includes a `segments` array and real `duration` from the ASR engine, matching the OpenAI API shape:
+`language` accepts the codes the loaded model recognizes (Parakeet v3: bg, cs, da, de, el, en, es, et, fi, fr, hr, hu, it, lt, lv, mt, nl, pl, pt, ro, ru, sk, sl, sv, uk; v2: en). Parakeet always detects the language itself; a hint restricts output to that language's script (e.g. prevents Cyrillic output for short Polish clips). Unsupported codes return 400.
+
+The `verbose_json` response includes a `segments` array and real `duration` from the ASR engine, matching the OpenAI API shape. Its `language` is the request's hint, or otherwise detected from the transcript with Apple's Natural Language framework (`und` if undetermined):
 
 ```json
 {
