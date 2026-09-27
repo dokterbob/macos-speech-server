@@ -176,6 +176,39 @@ final class TranscriptionIntegrationTests: XCTestCase {
         }
     }
 
+    func testLongWAVVerboseSegmentsCarryTextInOrder() async throws {
+        let wav = try fixture("test_long", "wav")
+        let body = transcriptionBody(
+            file: wav, filename: "test_long.wav",
+            fields: [
+                (name: "response_format", value: "verbose_json"),
+                (name: "timestamp_granularities[]", value: "word"),
+                (name: "timestamp_granularities[]", value: "segment"),
+            ])
+
+        try await app.test(
+            .POST, "/audio/transcriptions",
+            headers: transcriptionHeaders(),
+            body: ByteBuffer(data: body)
+        ) { res async throws in
+            XCTAssertEqual(res.status, .ok)
+            let decoded = try res.content.decode(TranscriptionResponseVerbose.self)
+            let segments = try XCTUnwrap(decoded.segments)
+            let words = try XCTUnwrap(decoded.words)
+            XCTAssertGreaterThan(segments.count, 1, "Long audio should split into several segments")
+            for segment in segments {
+                XCTAssertFalse(
+                    segment.text.trimmingCharacters(in: .whitespaces).isEmpty,
+                    "Segment \(segment.id) has no text")
+                XCTAssertLessThanOrEqual(segment.end, decoded.duration + 0.001)
+            }
+            XCTAssertEqual(segments.map(\.start), segments.map(\.start).sorted())
+            XCTAssertEqual(
+                segments.map(\.text).joined(separator: " "), words.map(\.word).joined(separator: " "),
+                "Segments should partition the recognized words")
+        }
+    }
+
     // MARK: - Error paths
 
     func testMissingFileField() async throws {

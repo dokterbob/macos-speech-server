@@ -5,6 +5,7 @@ struct WordTiming {
     let word: String
     let start: Double
     let end: Double
+    let confidence: Float
 }
 
 struct SegmentResult {
