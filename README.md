@@ -124,7 +124,7 @@ All fields are optional — omitted fields use the defaults shown above.
 
 #### `parakeet` (default)
 
-Uses [FluidAudio](https://github.com/FluidInference/FluidAudio)'s Parakeet TDT model (based on NVIDIA's architecture). Supports word-level timestamps and VAD-based segmentation. Three model versions: `v3` (multilingual, 25 languages, default), `ultra` and `v2` (English-only, higher recall).
+Uses [FluidAudio](https://github.com/FluidInference/FluidAudio)'s Parakeet TDT model (based on NVIDIA's architecture). Supports word-level timestamps and VAD-based segments (see [Speech-to-Text](#speech-to-text)). Three model versions: `v3` (multilingual, 25 languages, default), `ultra` and `v2` (English-only, higher recall).
 
 `ultra` is [Parakeet Ultra](https://github.com/FluidInference/FluidAudio/blob/main/Documentation/ASR/ParakeetUltra.md), a post-trained v3 with the same 25 languages and speed but lower word error rate: per FluidAudio's benchmarks, LibriSpeech test-other 4.12% → 3.81% and FLEURS (24 languages) 14.81% → 11.67%, better than v3 in every language. It downloads a separate ~630 MB model on first start.
 
@@ -244,6 +244,8 @@ The `verbose_json` response includes a `segments` array and real `duration` from
   "segments": [{ "id": 0, "seek": 0, "start": 0.0, "end": 1.54, "text": "Hello world.", ... }]
 }
 ```
+
+Speech is recognized in one pass over the whole file; segments only group the result. Each segment corresponds to a stretch of speech found by voice activity detection (VAD), and each recognized word belongs to the segment it overlaps most (or the nearest one, if it falls between them). A stretch with no recognized words produces no segment, so every segment has text. A segment's `start`/`end` cover its VAD stretch, widened to include all of its words.
 
 Example:
 
