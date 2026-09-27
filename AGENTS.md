@@ -121,8 +121,12 @@ O(chunk_size) during upload:
 
 1. On init: downloads ASR models v3 and loads VAD model (slow on first run, cached after).
 2. On transcribe: converts audio to 16 kHz mono Float32 via `DiskBackedAudioSampleSource`
-   (streaming, O(chunk) RAM), runs VAD in 4096-sample chunks to find speech segments, then
-   calls `asrManager.transcribe([Float], decoderState:)` on each segment.
+   (streaming, O(chunk) RAM) and runs VAD in 4096-sample chunks. No speech → empty result, no ASR.
+   Otherwise ASR runs **once over the whole audio** (`asrManager.transcribeDiskBacked`, which decodes
+   >15s audio in overlapping windows). `TranscriptSegmentation.swift` merges tokens into words and
+   groups words into VAD speech regions (max overlap, else nearest); regions without words yield no
+   segment. Do not decode VAD segments in isolation: Parakeet often returns empty text for short
+   (~2s) isolated clips that decode fine with surrounding speech.
 3. Returns `TranscriptionResult` (text + duration + words + segments) -- not a bare `String`.
 4. Must call `initialize()` before first use -- will throw `FluidSTTError.notInitialized` otherwise.
 
@@ -131,8 +135,8 @@ O(chunk_size) during upload:
   count (not zero-padded to `chunkSize`). FluidAudio applies repeat-last-sample padding
   internally; passing zeros creates an artificial silence cliff that causes premature
   speech-end detection and shorter segments.
-- `asrManager.transcribe` requires **>= 16,000 samples** (1 second). VAD segments shorter
-  than this must be zero-padded to 16,000 before the call or it throws `ASRError.invalidAudioData`.
+- ASR requires **>= 16,000 samples** (1 second). Audio shorter than this is zero-padded to
+  16,000 in memory before `asrManager.transcribe`, or it throws `ASRError.invalidAudioData`.
   Zero-padding the tail is safe -- the model handles trailing silence natively.
 
 FluidAudio 0.15.3 removed the Qwen3 ASR API; the server no longer advertises or accepts a `qwen3`
@@ -330,6 +334,7 @@ Both `http.host` and `wyoming.host` are independently configurable — they do n
 | `WyomingSessionTests.swift` | describe→info, synthesize→audio sequence, STT flow, errors, streaming order, streaming synthesis (mock services) | No |
 | `WyomingServerTests.swift` | Connection lifecycle over a real TCP socket via `WyomingServer.makeBootstrap` on an ephemeral port: the server answers, then closes after the client half-closes (mock services) | No |
 | `SentenceDetectionTests.swift` | `splitCompleteSentences` / `detectSentences` free functions | No |
+| `TranscriptSegmentationTests.swift` | `mergeTokensIntoWords` / `segmentWords` (word→VAD region grouping) | No |
 | `AVSpeechConfigTests.swift` | YAML parsing for `avspeech` engine and `AVSpeechSettings` | No |
 | `PCMConversionTests.swift` | `float32ToPCM16` and `makeWAV` utilities | No |
 | `AVSpeechTTSServiceTests.swift` | Real `AVSpeechTTSService` (uses macOS system voices) | No |
@@ -414,6 +419,7 @@ swift test --filter ServerConfig  # run a specific test class
 | `WyomingSessionTests.swift` | Unit | Wyoming session with mock services — no models needed |
 | `WyomingServerTests.swift` | Unit | Wyoming server connection lifecycle over a real socket (ephemeral port, mock services) — no models needed |
 | `SentenceDetectionTests.swift` | Unit | `splitCompleteSentences` / `detectSentences` — no models needed |
+| `TranscriptSegmentationTests.swift` | Unit | Token→word merge, word→speech-region grouping — no models needed |
 | `AVSpeechConfigTests.swift` | Unit | YAML parsing for `avspeech` engine and `AVSpeechSettings` — no models needed |
 | `PCMConversionTests.swift` | Unit | `float32ToPCM16` and `makeWAV` — no models needed |
 | `AVSpeechTTSServiceTests.swift` | Unit | Real `AVSpeechTTSService` using macOS system voices — no models needed |
