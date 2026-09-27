@@ -100,6 +100,8 @@ Both protocols require `Sendable` conformance.
 
 Routes are registered twice in `routes.swift` -- once at `/audio/*` and once at `/v1/audio/*` for OpenAI API compatibility. Both `SpeechController` and `TranscriptionController` implement `RouteCollection`.
 
+`GET /health` is registered after configured TTS/STT initialization completes; `ready: true` means routes and models are loaded.
+
 ### Transcription upload pipeline
 
 `TranscriptionController` streams the request body directly to a temp file before any
