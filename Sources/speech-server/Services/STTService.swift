@@ -23,7 +23,10 @@ struct TranscriptionResult {
 }
 
 protocol STTService: Sendable {
-    func transcribe(audioURL: URL) async throws -> TranscriptionResult
+    /// ISO 639-1 codes accepted as `language` hints by `transcribe`.
+    var supportedLanguages: [String] { get }
+    /// Transcribes the audio file. `language` is one of `supportedLanguages`, or `nil` for automatic detection.
+    func transcribe(audioURL: URL, language: String?) async throws -> TranscriptionResult
 }
 
 // MARK: - Vapor DI

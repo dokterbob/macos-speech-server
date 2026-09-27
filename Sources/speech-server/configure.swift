@@ -69,7 +69,7 @@ func configure(_ app: Application) async throws {
         let modelVersion = config.stt.parakeet.modelVersion
         app.logger.info(
             "Loading ASR models (Parakeet \(modelVersion.rawValue), first run will download ~minutes)...")
-        try await sttService.initialize(modelVersion: modelVersion.asrModelVersion)
+        try await sttService.initialize(modelVersion: modelVersion)
         app.sttService = sttService
         app.logger.info("ASR models loaded. Server ready.")
     }
