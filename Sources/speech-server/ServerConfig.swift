@@ -203,17 +203,30 @@ struct PocketTtsSettings: Codable, Sendable {
     /// Strip emoji and collapse surrounding whitespace before synthesis.
     /// PocketTTS renders emoji as creaky artifacts; default is true.
     var sanitizeEmoji: Bool
+    /// PocketTTS model placement. GPU (FluidAudio's default) unless configured; `ane` moves
+    /// the FlowLM and flow decoder onto the Neural Engine to keep the GPU free.
+    var placement: PocketTtsPlacement
 
-    init() { sanitizeEmoji = true }
+    init() {
+        sanitizeEmoji = true
+        placement = .gpu
+    }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         sanitizeEmoji = try c.decodeIfPresent(Bool.self, forKey: .sanitizeEmoji) ?? true
+        placement = try c.decodeIfPresent(PocketTtsPlacement.self, forKey: .placement) ?? .gpu
     }
 
     enum CodingKeys: String, CodingKey {
         case sanitizeEmoji = "sanitize_emoji"
+        case placement
     }
+}
+
+enum PocketTtsPlacement: String, Codable, Sendable {
+    case ane
+    case gpu
 }
 
 struct AVSpeechSettings: Codable, Sendable {
