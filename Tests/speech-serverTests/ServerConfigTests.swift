@@ -21,6 +21,7 @@ final class ServerConfigTests: XCTestCase {
     func testPocketTtsDefaultSettings() {
         let settings = PocketTtsSettings()
         XCTAssertTrue(settings.sanitizeEmoji)
+        XCTAssertEqual(settings.placement, .gpu)
     }
 
     func testPocketTtsSanitizeEmojiDisabled() throws {
@@ -32,6 +33,13 @@ final class ServerConfigTests: XCTestCase {
             """
         let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
         XCTAssertEqual(config.tts.pocketTts?.sanitizeEmoji, false)
+        XCTAssertEqual(config.tts.pocketTts?.placement, .gpu)
+    }
+
+    func testPocketTtsANEPlacementParsesExplicitly() throws {
+        let yaml = "tts:\n  engine: pocket_tts\n  pocket_tts:\n    placement: ane"
+        let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
+        XCTAssertEqual(config.tts.pocketTts?.placement, .ane)
     }
 
     func testPocketTtsSanitizeEmojiExplicitTrue() throws {
