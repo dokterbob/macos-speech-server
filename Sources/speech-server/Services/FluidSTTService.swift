@@ -80,76 +80,43 @@ final class FluidSTTService: STTService, @unchecked Sendable {
             return TranscriptionResult(text: "", duration: totalDuration, words: [], segments: [])
         }
 
-        var segmentResults: [SegmentResult] = []
-
-        for vadSeg in vadSegments {
-            let startSample = vadSeg.startSample(sampleRate: 16000)
-            let endSample = min(vadSeg.endSample(sampleRate: 16000), totalSamples)
-            let segLength = endSample - startSample
-            guard segLength >= 160 else { continue }
-
-            // ASR requires >= 16,000 samples (1 second); pad shorter segments with silence.
-            // The model handles silence padding natively, so transcription quality is unaffected.
-            let paddedLength = max(segLength, 16_000)
-            var slicedSamples = [Float](repeating: 0, count: paddedLength)
-            try diskSource.copySamples(into: &slicedSamples, offset: startSample, count: segLength)
-            var decoderState = try TdtDecoderState(decoderLayers: await asrManager.decoderLayerCount)
-            let result = try await asrManager.transcribe(slicedSamples, decoderState: &decoderState)
-
-            let segOffset = vadSeg.startTime
-            let rawWords = mergeTokensIntoWords(result.tokenTimings ?? [])
-            let offsetWords = rawWords.map {
-                WordTiming(word: $0.word, start: ($0.start + segOffset).rounded3, end: ($0.end + segOffset).rounded3)
-            }
-
-            segmentResults.append(
-                SegmentResult(
-                    text: result.text,
-                    start: vadSeg.startTime.rounded3,
-                    end: vadSeg.endTime.rounded3,
-                    words: offsetWords,
-                    confidence: result.confidence
-                ))
+        // Recognize the whole audio in one pass. Decoding VAD segments in isolation starves Parakeet of context:
+        // short segments (~2s) often decode to nothing even when clearly audible. VAD only gates silence and
+        // shapes the returned segments.
+        let result = try await recognizeWholeAudio(
+            audioURL: audioURL, source: diskSource, totalSamples: totalSamples, asrManager: asrManager
+        )
+        let words = mergeTokensIntoWords(result.tokenTimings ?? []).map {
+            WordTiming(word: $0.word, start: $0.start.rounded3, end: $0.end.rounded3, confidence: $0.confidence)
         }
+        let regions = vadSegments.map { SpeechRegion(start: $0.startTime.rounded3, end: $0.endTime.rounded3) }
+        let segments = segmentWords(words, into: regions)
 
-        let fullText = segmentResults.map { $0.text }.joined(separator: " ")
-        let allWords = segmentResults.flatMap { $0.words }
+        logger.notice(
+            "Transcription done: duration=\(totalDuration)s, speechRegions=\(regions.count), segments=\(segments.count)"
+        )
+        logger.debug("Transcription text: '\(result.text)'")
 
-        logger.notice("Transcription done: duration=\(totalDuration)s, segments=\(segmentResults.count)")
-        logger.debug("Transcription text: '\(fullText)'")
-
-        return TranscriptionResult(text: fullText, duration: totalDuration, words: allWords, segments: segmentResults)
+        return TranscriptionResult(text: result.text, duration: totalDuration, words: words, segments: segments)
     }
-}
 
-// Replicates WordTimingMerger.mergeTokensIntoWords from FluidAudioCLI (not exported by the core library).
-// Tokens use leading spaces as word boundaries (SentencePiece-style, normalised by AsrManager).
-private func mergeTokensIntoWords(_ tokenTimings: [TokenTiming]) -> [WordTiming] {
-    guard !tokenTimings.isEmpty else { return [] }
-    var result: [WordTiming] = []
-    var currentWord = ""
-    var currentStart: TimeInterval?
-    var currentEnd: TimeInterval = 0
-
-    for timing in tokenTimings {
-        if timing.token.hasPrefix(" ") || timing.token.hasPrefix("\n") || timing.token.hasPrefix("\t") {
-            if !currentWord.isEmpty, let start = currentStart {
-                result.append(WordTiming(word: currentWord, start: start.rounded3, end: currentEnd.rounded3))
-            }
-            currentWord = timing.token.trimmingCharacters(in: .whitespacesAndNewlines)
-            currentStart = timing.startTime
-            currentEnd = timing.endTime
+    /// Runs ASR over the entire audio with token timings relative to its start.
+    ///
+    /// Audio of at least one second streams from disk through FluidAudio's chunked decoder (overlapping windows for
+    /// audio beyond the model's 15s input). Shorter audio is zero-padded in memory to the ASR minimum of 16,000
+    /// samples; trailing silence does not affect recognition.
+    private func recognizeWholeAudio(
+        audioURL: URL, source: DiskBackedAudioSampleSource, totalSamples: Int, asrManager: AsrManager
+    ) async throws -> ASRResult {
+        var decoderState = try TdtDecoderState(decoderLayers: await asrManager.decoderLayerCount)
+        let minimumSamples = 16_000
+        guard totalSamples < minimumSamples else {
+            return try await asrManager.transcribeDiskBacked(audioURL, decoderState: &decoderState)
         }
-        else {
-            if currentStart == nil { currentStart = timing.startTime }
-            currentWord += timing.token
-            currentEnd = timing.endTime
-        }
+        var samples = [Float](repeating: 0, count: minimumSamples)
+        try source.copySamples(into: &samples, offset: 0, count: totalSamples)
+        return try await asrManager.transcribe(samples, decoderState: &decoderState)
     }
-    if !currentWord.isEmpty, let start = currentStart {
-        result.append(WordTiming(word: currentWord, start: start.rounded3, end: currentEnd.rounded3))
-    }
-    return result
 }
 
 extension Double {
