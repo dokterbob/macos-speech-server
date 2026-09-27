@@ -69,6 +69,8 @@ final class WyomingSessionTests: XCTestCase {
         XCTAssertNil(asrProgram["languages"])
         XCTAssertEqual(firstAsrModel["installed"]?.boolValue, true)
         XCTAssertTrue(asrModelLangs.contains(where: { $0.stringValue == "en" }))
+        XCTAssertTrue(asrModelLangs.contains(where: { $0.stringValue == "fr" }))
+        XCTAssertTrue(asrModelLangs.contains(where: { $0.stringValue == "pl" }))
 
         // TTS program must have a "voices" array; each voice has "languages"
         guard let ttsProgram = ttsArray[0].objectValue,

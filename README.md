@@ -34,7 +34,7 @@ brew services restart macos-speech-server
 
 The working directory is `$(brew --prefix)/var/speech-server`; logs are written to `speech-server.log` inside it.
 
-On first start the server downloads ASR/TTS models -- roughly 700 MB with the default engines, up to ~1.75 GB if you switch to the `qwen3` `f32` variant -- into `~/Library/Application Support/FluidAudio` and `~/.cache/fluidaudio`. This takes several minutes and prints nothing at the default `log_level: notice`; set `log_level: info` in the config to watch progress.
+On first start the server downloads ASR/TTS models -- roughly 700 MB with the default engines -- into `~/Library/Application Support/FluidAudio` and `~/.cache/fluidaudio`. This takes several minutes and prints nothing at the default `log_level: notice`; set `log_level: info` in the config to watch progress.
 
 Check readiness once the download completes:
 
@@ -97,12 +97,9 @@ servers:
     port: 10300           # TCP port for Wyoming protocol (Home Assistant). 0 = disabled.
 
 stt:
-  engine: parakeet      # parakeet (default) | qwen3
+  engine: parakeet      # parakeet
   parakeet:
     model_version: v3   # v3 = multilingual (25 langs, default), v2 = English-only
-  # qwen3:              # Qwen3 ASR — encoder-decoder model with language hinting (macOS 15+)
-  #   variant: int8     # int8 (default, ~900 MB) | f32 (~1.75 GB)
-  #   language: en      # ISO 639-1 code; omit for auto-detect
 
 tts:
   engine: pocket_tts    # pocket_tts (default) | avspeech | kokoro
@@ -119,34 +116,15 @@ tts:
 
 All fields are optional — omitted fields use the defaults shown above.
 
-### STT engines
-
-Two STT engines are available:
+### STT engine
 
 | Engine | `engine:` value | Languages | Downloads | Notes |
 |--------|----------------|-----------|-----------|-------|
 | Parakeet TDT | `parakeet` | 25 (v3) or English-only (v2) | ~500 MB on first start | Default, CTC/TDT model, word-level timestamps |
-| Qwen3 ASR | `qwen3` | 30+ with explicit language hinting | ~900 MB (int8) or ~1.75 GB (f32) | Encoder-decoder, macOS 15+ required |
 
 #### `parakeet` (default)
 
 Uses [FluidAudio](https://github.com/FluidInference/FluidAudio)'s Parakeet TDT model (based on NVIDIA's architecture). Supports word-level timestamps and VAD-based segmentation. Two model versions: `v3` (multilingual, 25 languages) and `v2` (English-only, higher recall).
-
-#### `qwen3` — encoder-decoder ASR with language hinting
-
-Uses FluidAudio's Qwen3 ASR model — an encoder-decoder architecture (Whisper-family) that supports explicit language hinting via the `language` setting. This can improve accuracy for specific accents or languages since the model doesn't need to auto-detect the language. Requires macOS 15+.
-
-```yaml
-stt:
-  engine: qwen3
-  qwen3:
-    variant: int8     # int8 (default, ~900 MB) or f32 (~1.75 GB)
-    language: en      # ISO 639-1 code — set this for best results with a known language
-```
-
-Supported languages: zh, en, yue, ar, de, fr, es, pt, id, it, ko, ru, th, vi, ja, tr, hi, ms, nl, sv, da, fi, pl, cs, fil, fa, el, hu, mk, ro.
-
-**Note:** Qwen3 does not provide word-level timestamps. The `verbose_json` response will include segment-level timing (from VAD) but the `words` array will be empty.
 
 ### TTS engines
 
@@ -156,7 +134,7 @@ Three TTS engines are available:
 |--------|----------------|--------|-------------|-----------|-------|
 | FluidAudio PocketTTS | `pocket_tts` | `alba` only | 24 kHz | ~200 MB on first start | Default |
 | macOS AVSpeech | `avspeech` | 150+ system voices | 22050 Hz | None (ships with macOS) | Instant startup |
-| FluidAudio Kokoro | `kokoro` | 50 voices, 8 languages | 24 kHz | ~300 MB on first start | High quality |
+| FluidAudio Kokoro ANE | `kokoro` | 54 Kokoro-82M voices (English text) | 24 kHz | ~1 GB on first start | 7-stage Core ML chain |
 
 #### `pocket_tts` (default)
 
@@ -188,7 +166,7 @@ The short name (e.g. `Samantha`, `Daniel`, `Karen`) is used in API requests. Voi
 
 #### `kokoro` — FluidAudio Kokoro
 
-Uses [FluidAudio](https://github.com/FluidInference/FluidAudio)'s Kokoro CoreML model. 50 voices across 8 languages (American English, British English, Spanish, French, Hindi, Italian, Japanese, Brazilian Portuguese, Mandarin Chinese), synthesised at 24 kHz. Models are downloaded on first start and cached at `~/.cache/fluidaudio/Models/kokoro`.
+Uses FluidAudio's `KokoroAneManager`, a 7-stage Core ML chain synthesised at 24 kHz. Accepts any Kokoro-82M v1.0 voice ID (`af_*`, `am_*`, `bf_*`, `bm_*`, …); input text is phonemized as English, so non-English voices lend only their timbre. Voice packs download on first use; unknown voice IDs fail at startup. Models are cached under `~/.cache/fluidaudio/Models/`.
 
 ```yaml
 tts:
@@ -196,10 +174,6 @@ tts:
   kokoro:
     default_voice: af_heart   # Optional — default is af_heart (American English female)
 ```
-
-American English voices (production-quality): `af_alloy`, `af_aoede`, `af_bella`, `af_heart`, `af_jessica`, `af_kore`, `af_nicole`, `af_nova`, `af_river`, `af_sarah`, `af_sky`, `am_adam`, `am_echo`, `am_eric`, `am_fenrir`, `am_liam`, `am_michael`, `am_onyx`, `am_puck`, `am_santa`.
-
-Other language voices are experimental (not QA'd). Full voice list: use `/v1/audio/speech` with an invalid voice to see the available options listed in the error message.
 
 ### Config discovery order
 
@@ -410,12 +384,11 @@ Sources/speech-server/
   Services/
     STTService.swift               # STT protocol + DI
     FluidSTTService.swift          # FluidAudio ASR implementation (parakeet engine)
-    Qwen3STTService.swift          # FluidAudio Qwen3 ASR implementation (qwen3 engine)
     AudioFormatDetection.swift     # Magic-byte audio format detection
     TTSService.swift               # TTS protocol + DI
     FluidTTSService.swift          # FluidAudio PocketTTS implementation (pocket_tts engine)
     AVSpeechTTSService.swift       # macOS AVSpeechSynthesizer implementation (avspeech engine)
-    KokoroTTSService.swift         # FluidAudio Kokoro implementation (kokoro engine)
+    KokoroTTSService.swift         # FluidAudio Kokoro ANE implementation (kokoro engine)
     PCMConversion.swift            # Shared Float32→Int16 PCM conversion and WAV builder
     SentenceDetection.swift        # Shared sentence splitting for TTS
   Middleware/
