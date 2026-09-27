@@ -142,7 +142,10 @@ engine.
 
 `FluidTTSService` wraps FluidAudio's `PocketTtsManager`:
 
-1. On init: downloads PocketTTS models (slow on first run, cached after).
+1. On init: maps `PocketTtsSettings.placement` to FluidAudio's `PocketTtsModelPlacement`.
+   Default `.gpu` matches FluidAudio; `.ane` loads the rank-4 ANE models and removes the GPU
+   from synthesis. `.ane` needs a Neural Engine, so it must stay opt-in (virtualised CI runners
+   have none). Models download on first run and remain cached.
 2. On synthesize (`synthesize`): pre-processes text via the shared `detectSentences()` free function
    (see `SentenceDetection.swift`) to ensure every sentence ends with `.!?`, then passes the result
    to a **single** `manager.synthesize()` call. The library chunks at sentence boundaries (preferred
