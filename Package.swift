@@ -37,6 +37,8 @@ let package = Package(
                 .target(name: "speech-server"),
                 .product(name: "XCTVapor", package: "vapor"),
                 .product(name: "Yams", package: "Yams"),
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
             ],
             resources: [
                 .copy("Fixtures"),

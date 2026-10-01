@@ -35,24 +35,37 @@ final class WyomingServer: LifecycleHandler, @unchecked Sendable {
         self.logger = logger
     }
 
-    func didBoot(_ application: Application) throws {
-        let tts = ttsService
-        let stt = sttService
-        let info = sttInfo
-        let log = logger
-
-        let bootstrap = ServerBootstrap(group: application.eventLoopGroup)
+    /// The server bootstrap: one `WyomingSession` + `WyomingChannelHandler` per accepted connection.
+    /// Shared with the tests so they exercise the production channel options.
+    static func makeBootstrap(
+        group: any EventLoopGroup,
+        ttsService: any TTSService,
+        sttService: any STTService,
+        sttInfo: STTInfo,
+        logger: Logger
+    ) -> ServerBootstrap {
+        ServerBootstrap(group: group)
             .serverChannelOption(ChannelOptions.backlog, value: 256)
             .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
-                let session = WyomingSession(ttsService: tts, sttService: stt, sttInfo: info, logger: log)
-                let handler = WyomingChannelHandler(session: session, logger: log)
+                let session = WyomingSession(
+                    ttsService: ttsService, sttService: sttService, sttInfo: sttInfo, logger: logger)
+                let handler = WyomingChannelHandler(session: session, logger: logger)
                 return channel.pipeline.addHandler(handler)
             }
             .childChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .childChannelOption(ChannelOptions.maxMessagesPerRead, value: 16)
             .childChannelOption(ChannelOptions.allowRemoteHalfClosure, value: true)
+    }
 
+    func didBoot(_ application: Application) throws {
+        let bootstrap = Self.makeBootstrap(
+            group: application.eventLoopGroup,
+            ttsService: ttsService,
+            sttService: sttService,
+            sttInfo: sttInfo,
+            logger: logger
+        )
         let channel = try bootstrap.bind(host: host, port: port).wait()
         serverChannel = channel
         logger.notice("Wyoming server listening on \(host):\(port)")

@@ -13,9 +13,15 @@ import NIOCore
 /// chunks from each `synthesize-chunk` are written to the channel before `synthesize-stop`
 /// is processed, so `synthesize-stopped` is only sent after all audio has been delivered.
 ///
+/// The server enables `allowRemoteHalfClosure`, so when the client closes its side NIO does
+/// not close the channel; it sends `ChannelEvent.inputClosed` instead. The handler then
+/// finishes the event stream, and the processing Task closes the channel once every queued
+/// event has been answered. A client that half-closes after its last request still gets the
+/// full response, and the server's end is always closed.
+///
 /// `frameDecoder` and `eventContinuation` are only ever accessed on the channel's event loop
-/// thread (`channelActive`, `channelRead`, `errorCaught`, `channelInactive`) — hence
-/// `@unchecked Sendable` is sound.
+/// thread (`channelActive`, `channelRead`, `userInboundEventTriggered`, `errorCaught`,
+/// `channelInactive`) — hence `@unchecked Sendable` is sound.
 final class WyomingChannelHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
@@ -54,6 +60,10 @@ final class WyomingChannelHandler: ChannelInboundHandler, @unchecked Sendable {
                     channel.writeAndFlush(outBuf, promise: nil)
                 }
             }
+            // The stream ends when the client has closed its side (inputClosed), on error,
+            // or when the channel went inactive. All queued events have been answered, so
+            // close our side too; on an already-closed channel this is a no-op.
+            channel.close(promise: nil)
         }
 
         context.fireChannelActive()
@@ -69,6 +79,14 @@ final class WyomingChannelHandler: ChannelInboundHandler, @unchecked Sendable {
         for event in events {
             eventContinuation?.yield(event)
         }
+    }
+
+    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+        if let channelEvent = event as? ChannelEvent, channelEvent == .inputClosed {
+            logger.debug("Wyoming client closed its side; closing after pending responses")
+            eventContinuation?.finish()
+        }
+        context.fireUserInboundEventTriggered(event)
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {

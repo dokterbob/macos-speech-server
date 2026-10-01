@@ -292,8 +292,8 @@ Example: `{"type":"audio-chunk","version":"1.0.0","data_length":36,"payload_leng
 | `WyomingFrameDecoder.swift` | Pure Swift state machine. `mutating func process(_ bytes: Data) -> [WyomingEvent]`. No NIO imports. |
 | `WyomingWAVWriter.swift` | Accumulates PCM chunks; `makeWAV()` / `writeToTempFile()` for STT handoff. |
 | `WyomingSession.swift` | `actor` combining TTS and STT. `handle(event:) -> AsyncStream<Data>` — state mutations are synchronous; TTS/STT I/O runs in Tasks that yield to the stream. |
-| `WyomingNIOHandler.swift` | `ChannelInboundHandler` (thin NIO glue). Feeds bytes to `WyomingFrameDecoder`, iterates `AsyncStream` from session, writes each event to the channel immediately. |
-| `WyomingServer.swift` | `ServerBootstrap` + `LifecycleHandler`. Binds single TCP port, creates session per connection. |
+| `WyomingNIOHandler.swift` | `ChannelInboundHandler` (thin NIO glue). Feeds bytes to `WyomingFrameDecoder`, iterates `AsyncStream` from session, writes each event to the channel immediately. Closes the channel once the client has closed its side and every queued event has been answered (see "Connection close" below). |
+| `WyomingServer.swift` | `LifecycleHandler` that binds a single TCP port. `static makeBootstrap(...)` builds the `ServerBootstrap` (channel options, one session per connection); tests bind it to an ephemeral port. |
 
 **Session state machine**:
 ```
@@ -312,6 +312,18 @@ any state ──describe──→ [send info with both asr + tts capabilities] (
 The `info` response advertises both `asr` and `tts` arrays so Home Assistant knows this single port handles both services. The TTS program includes `supports_synthesize_streaming: true` to advertise HA 2025.07+ streaming support. ASR model name and language list are driven by `STTInfo` (passed through `WyomingServer` → `WyomingSession`), with static presets `.parakeet` and `.qwen3`.
 
 **Streaming TTS**: `handle(event:)` returns `AsyncStream<Data>` (non-async). For `synthesize`, the stream yields `audio-start` + each `audio-chunk` + `audio-stop` incrementally as TTS chunks arrive — `audio-start` is withheld until the first chunk so a completely failed synthesis sends nothing. State mutations (e.g. `state = .awaitingAudio`) happen synchronously before the stream is returned, so callers can immediately make the next `handle` call without draining the stream first. All other event types pre-fill the stream synchronously and finish immediately.
+
+**Connection close (half-closure gotcha)**: the bootstrap sets `ChannelOptions.allowRemoteHalfClosure` so a client
+that half-closes after its last request (shutdown of its write side) still receives the full response. With that option
+NIO does **not** close the channel when the peer closes; it fires `ChannelEvent.inputClosed` through
+`userInboundEventTriggered` instead. `WyomingChannelHandler` must handle it: it finishes the event stream, and the
+processing Task closes the channel after the last queued event's response has been written. Before this was handled,
+the server never closed its end of any connection: one leaked file descriptor per connection (Home Assistant connects
+about once a minute) until the process hit its descriptor limit after ~2,500 connections, and every new connection on
+both the Wyoming and HTTP ports was reset while the process still looked healthy. Symptom to recognise: many
+"Wyoming connection opened" log lines and no "Wyoming connection closed", and `lsof -p <pid> -iTCP` full of `CLOSED`
+sockets. Don't remove `allowRemoteHalfClosure` or the `inputClosed` handling without replacing the other.
+`WyomingServerTests` covers this over a real socket.
 
 **Config** (nested under `servers` in `speech-server.yaml`):
 ```yaml
@@ -335,6 +347,7 @@ Both `http.host` and `wyoming.host` are independently configurable — they do n
 | `WyomingFrameDecoderTests.swift` | Header-only, with data, with payload, partial feeds, multi-event, reset | No |
 | `WyomingWAVWriterTests.swift` | Valid WAV header bytes, multi-chunk, cleanup, custom sample rates | No |
 | `WyomingSessionTests.swift` | describe→info, synthesize→audio sequence, STT flow, errors, streaming order, streaming synthesis (mock services) | No |
+| `WyomingServerTests.swift` | Connection lifecycle over a real TCP socket via `WyomingServer.makeBootstrap` on an ephemeral port: the server answers, then closes after the client half-closes (mock services) | No |
 | `SentenceDetectionTests.swift` | `splitCompleteSentences` / `detectSentences` free functions | No |
 | `AVSpeechConfigTests.swift` | YAML parsing for `avspeech` engine and `AVSpeechSettings` | No |
 | `PCMConversionTests.swift` | `float32ToPCM16` and `makeWAV` utilities | No |
@@ -419,6 +432,7 @@ swift test --filter ServerConfig  # run a specific test class
 | `WyomingFrameDecoderTests.swift` | Unit | Wyoming frame decoder — no models needed |
 | `WyomingWAVWriterTests.swift` | Unit | Wyoming WAV writer — no models needed |
 | `WyomingSessionTests.swift` | Unit | Wyoming session with mock services — no models needed |
+| `WyomingServerTests.swift` | Unit | Wyoming server connection lifecycle over a real socket (ephemeral port, mock services) — no models needed |
 | `SentenceDetectionTests.swift` | Unit | `splitCompleteSentences` / `detectSentences` — no models needed |
 | `AVSpeechConfigTests.swift` | Unit | YAML parsing for `avspeech` engine and `AVSpeechSettings` — no models needed |
 | `PCMConversionTests.swift` | Unit | `float32ToPCM16` and `makeWAV` — no models needed |
