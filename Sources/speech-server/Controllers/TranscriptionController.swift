@@ -159,12 +159,13 @@ struct TranscriptionController: RouteCollection {
             let turns =
                 result.segments.isEmpty
                 ? [] : try await req.application.diarizationService.diarize(audioURL: audioTempURL)
-            speakerSegments = alignSpeakers(segments: result.segments, turns: turns).enumerated().map { index, seg in
-                TranscriptionSegment(
-                    id: index, seek: Int(seg.start * 100), start: seg.start, end: seg.end, text: seg.text,
-                    temperature: 0, avgLogprob: log(Double(max(seg.confidence, 1e-6))),
-                    compressionRatio: 1, noSpeechProb: 0, speaker: seg.speaker)
-            }
+            speakerSegments = alignSpeakers(segments: result.segments, turns: turns, duration: result.duration)
+                .enumerated().map { index, seg in
+                    TranscriptionSegment(
+                        id: index, seek: Int(seg.start * 100), start: seg.start, end: seg.end, text: seg.text,
+                        temperature: 0, avgLogprob: log(Double(max(seg.confidence, 1e-6))),
+                        compressionRatio: 1, noSpeechProb: 0, speaker: seg.speaker)
+                }
         }
         else {
             speakerSegments = nil

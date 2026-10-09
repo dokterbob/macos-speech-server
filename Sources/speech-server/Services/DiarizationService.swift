@@ -23,27 +23,15 @@ actor FluidDiarizationService: DiarizationService {
     private let makeBackend: @Sendable () -> any DiarizationBackend
     private var backend: (any DiarizationBackend)?
     private var busy = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [(id: UUID, continuation: CheckedContinuation<Void, Error>)] = []
 
     init(makeBackend: @escaping @Sendable () -> any DiarizationBackend = { CommunityDiarizationBackend() }) {
         self.makeBackend = makeBackend
     }
 
     func diarize(audioURL: URL) async throws -> [SpeakerTurn] {
-        if busy {
-            await withCheckedContinuation { waiters.append($0) }
-        }
-        else {
-            busy = true
-        }
-        defer {
-            if waiters.isEmpty {
-                busy = false
-            }
-            else {
-                waiters.removeFirst().resume()
-            }
-        }
+        try await acquire()
+        defer { release() }
         try Task.checkCancellation()
 
         if backend == nil {
@@ -53,6 +41,43 @@ actor FluidDiarizationService: DiarizationService {
         }
         try Task.checkCancellation()
         return try await backend!.process(audioURL)
+    }
+
+    private func acquire() async throws {
+        try Task.checkCancellation()
+        guard busy else {
+            busy = true
+            return
+        }
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                // Cancellation may happen before its handler can reach this actor.
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                waiters.append((id, continuation))
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id: id) }
+        }
+    }
+
+    private func cancelWaiter(id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+        waiters.remove(at: index).continuation.resume(throwing: CancellationError())
+        // A queued request does not own the gate, so cancellation must not release it.
+    }
+
+    private func release() {
+        if waiters.isEmpty {
+            busy = false
+        }
+        else {
+            // Transfer ownership while keeping the gate closed to new arrivals.
+            waiters.removeFirst().continuation.resume()
+        }
     }
 }
 
@@ -113,7 +138,7 @@ struct SpeakerAlignedSegment {
 /// Assign each word by maximum overlap, then group adjacent words of the same
 /// speaker within an ASR segment. Without word timing, retain the whole segment.
 /// No overlap means unknown; never invent word times or duplicate text for overlap.
-func alignSpeakers(segments: [SegmentResult], turns: [SpeakerTurn]) -> [SpeakerAlignedSegment] {
+func alignSpeakers(segments: [SegmentResult], turns: [SpeakerTurn], duration: Double) -> [SpeakerAlignedSegment] {
     let sortedTurns = turns.filter { $0.start.isFinite && $0.end.isFinite && $0.end > $0.start }
         .sorted { $0.start == $1.start ? $0.speaker < $1.speaker : $0.start < $1.start }
     var latestEnd = -Double.infinity
@@ -123,6 +148,7 @@ func alignSpeakers(segments: [SegmentResult], turns: [SpeakerTurn]) -> [SpeakerA
     }
 
     func speaker(start: Double, end: Double) -> String {
+        guard end > start else { return "unknown" }
         // Skip past turns by binary search rather than scanning the recording
         // for every word. Prefix maxima also handle overlapping speaker turns.
         var lower = 0
@@ -158,11 +184,13 @@ func alignSpeakers(segments: [SegmentResult], turns: [SpeakerTurn]) -> [SpeakerA
 
     var aligned: [SpeakerAlignedSegment] = []
     for segment in segments {
+        let segmentStart = min(max(0, segment.start), max(0, duration))
+        let segmentEnd = min(max(segmentStart, segment.end), max(0, duration))
         guard !segment.words.isEmpty else {
             aligned.append(
                 SpeakerAlignedSegment(
-                    text: segment.text, start: segment.start, end: segment.end, confidence: segment.confidence,
-                    speaker: speaker(start: segment.start, end: segment.end)))
+                    text: segment.text, start: segmentStart, end: segmentEnd, confidence: segment.confidence,
+                    speaker: speaker(start: segmentStart, end: segmentEnd)))
             continue
         }
         var currentSpeaker: String?
@@ -177,15 +205,21 @@ func alignSpeakers(segments: [SegmentResult], turns: [SpeakerTurn]) -> [SpeakerA
                     confidence: segment.confidence, speaker: currentSpeaker))
         }
         for word in segment.words {
-            let label = speaker(start: word.start, end: word.end)
+            // ASR runs on padded audio. Clamp before matching so padding cannot
+            // contribute overlap or extend response timestamps past real audio.
+            let wordStart = min(segmentEnd, max(segmentStart, word.start))
+            let wordEnd = min(segmentEnd, max(wordStart, word.end))
+            let label = speaker(start: wordStart, end: wordEnd)
             if label != currentSpeaker {
                 flush()
                 words = []
-                start = word.start
+                start = wordStart
+                end = wordEnd
                 currentSpeaker = label
             }
             words.append(word.word)
-            end = word.end
+            start = min(start, wordStart)
+            end = max(end, wordEnd)
         }
         flush()
     }
