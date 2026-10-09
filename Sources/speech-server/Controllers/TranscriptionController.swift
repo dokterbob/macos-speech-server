@@ -112,6 +112,16 @@ struct TranscriptionController: RouteCollection {
         let filename = state.uploadedFileName ?? "upload"
         let responseFormat = state.stringField("response_format") ?? "json"
         let language = state.stringField("language")
+        let diarize: Bool
+        switch state.stringField("diarize") {
+        case nil, "false": diarize = false
+        case "true": diarize = true
+        default:
+            throw Abort(.badRequest, reason: "'diarize' must be true or false.")
+        }
+        if diarize && responseFormat != "json" && responseFormat != "verbose_json" {
+            throw Abort(.badRequest, reason: "'diarize=true' requires response_format json or verbose_json.")
+        }
 
         if let tempStr = state.stringField("temperature"), let temp = Double(tempStr) {
             guard temp >= 0 && temp <= 1 else {
@@ -142,9 +152,27 @@ struct TranscriptionController: RouteCollection {
 
         let result = try await req.sttService.transcribe(audioURL: audioTempURL)
 
+        // Run sequentially after ASR so large per-segment ASR buffers are released
+        // before diarization. Silence does not trigger model loading.
+        let speakerSegments: [TranscriptionSegment]?
+        if diarize {
+            let turns =
+                result.segments.isEmpty
+                ? [] : try await req.application.diarizationService.diarize(audioURL: audioTempURL)
+            speakerSegments = alignSpeakers(segments: result.segments, turns: turns).enumerated().map { index, seg in
+                TranscriptionSegment(
+                    id: index, seek: Int(seg.start * 100), start: seg.start, end: seg.end, text: seg.text,
+                    temperature: 0, avgLogprob: log(Double(max(seg.confidence, 1e-6))),
+                    compressionRatio: 1, noSpeechProb: 0, speaker: seg.speaker)
+            }
+        }
+        else {
+            speakerSegments = nil
+        }
+
         switch responseFormat {
         case "json":
-            let json = TranscriptionResponseJSON(text: result.text)
+            let json = TranscriptionResponseJSON(text: result.text, segments: speakerSegments)
             let response = Response(status: .ok)
             try response.content.encode(json, as: .json)
             return response
@@ -154,21 +182,22 @@ struct TranscriptionController: RouteCollection {
             return response
         case "verbose_json":
             let segments: [TranscriptionSegment]? =
-                granularities.contains("segment")
-                ? result.segments.enumerated().map { index, seg in
-                    TranscriptionSegment(
-                        id: index,
-                        seek: Int(seg.start * 100),
-                        start: seg.start,
-                        end: seg.end,
-                        text: seg.text,
-                        temperature: 0.0,
-                        avgLogprob: log(Double(max(seg.confidence, 1e-6))),
-                        compressionRatio: 1.0,
-                        noSpeechProb: 0.0
-                    )
-                }
-                : nil
+                speakerSegments
+                ?? (granularities.contains("segment")
+                    ? result.segments.enumerated().map { index, seg in
+                        TranscriptionSegment(
+                            id: index,
+                            seek: Int(seg.start * 100),
+                            start: seg.start,
+                            end: seg.end,
+                            text: seg.text,
+                            temperature: 0.0,
+                            avgLogprob: log(Double(max(seg.confidence, 1e-6))),
+                            compressionRatio: 1.0,
+                            noSpeechProb: 0.0
+                        )
+                    }
+                    : nil)
             let words: [TranscriptionWord]? =
                 granularities.contains("word")
                 ? result.words.map { TranscriptionWord(word: $0.word, start: $0.start, end: $0.end) }

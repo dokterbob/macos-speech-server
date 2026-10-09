@@ -137,6 +137,28 @@ multipart parsing, keeping peak RAM at O(chunk_size) during upload:
 
 Use `source: .system` for file/API transcription, `source: .microphone` for live capture.
 
+### Optional HTTP diarization
+
+`DiarizationService.swift` wraps FluidAudio's `OfflineDiarizerManager` (Community-1).
+`configure()` registers one `FluidDiarizationService` actor without loading models.
+An explicit gate held across awaits serializes preparation and inference; actor
+isolation alone does not prevent concurrent work through reentrancy. Failed model
+loads can retry. Models are reused after the first non-silent `diarize=true` request.
+The backend uses `process(URL)` for disk-backed conversion/cleanup and embedding
+batch size 1. FluidAudio 0.13.5 hardcodes `.all` for segmentation/embedding/PLDA and
+`.cpuOnly` for fbank; its configuration argument does not override compute units.
+Segmentation/clustering metadata still grows with recording length.
+
+The controller runs diarization after ASR, on the same temp audio URL, before cleanup.
+`json` gains optional `segments`, and `verbose_json` always includes segments when
+diarizing. `TranscriptionSegment.speaker` is omitted when disabled. Other response
+formats with `diarize=true` return 400. `alignSpeakers` groups Parakeet words by
+maximum speaker overlap; Qwen3 uses whole-segment overlap without inventing word
+timestamps. No overlap is `unknown`; ties favor the earliest turn. Mock-based
+`DiarizationTests` and `DiarizationControllerTests` require no model downloads.
+`DiarizationIntegrationTests` exercises the real file API when
+`TEST_DIARIZATION_MODELS=1`; otherwise it skips the additional model download.
+
 ### Qwen3STTService
 
 `Qwen3STTService` wraps FluidAudio's `Qwen3AsrManager` (encoder-decoder ASR, 30+ languages):

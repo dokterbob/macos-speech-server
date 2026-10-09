@@ -2,7 +2,7 @@
 
 Local, private speech-to-text (STT) and text-to-speech (TTS) server for macOS with OpenAI-compatible and Home Assistant (Wyoming) support.
 
-Runs entirely on-device using Apple's Neural Engine via [FluidAudio](https://github.com/FluidInference/FluidAudio) -- no cloud services, no API keys, no data leaves your machine. Models are loaded once at startup and served to any device on your network, so a single Mac with Apple Silicon can handle transcription and speech for your entire household.
+Runs entirely on-device using Apple's Neural Engine via [FluidAudio](https://github.com/FluidInference/FluidAudio) -- no cloud services, no API keys, no data leaves your machine. Speech models are loaded once at startup; optional speaker diarization models load on demand. Models are reused to serve any device on your network, so a single Mac with Apple Silicon can handle transcription and speech for your entire household.
 
 Two interfaces, one server:
 
@@ -248,6 +248,7 @@ Content-Type: multipart/form-data
 | `prompt`          | String | No       | Context hint for transcription                     |
 | `response_format` | String | No       | `json` (default), `text`, or `verbose_json`; `srt`/`vtt` return 400 |
 | `temperature`     | Double | No       | Sampling temperature, 0.0-1.0                      |
+| `diarize`         | Boolean | No      | `true` or `false` (default); add speaker-labeled segments to JSON responses |
 
 Supported audio formats: WAV, MP3, M4A, FLAC, AIFF, OGG. Files without a recognised extension are identified automatically via magic bytes.
 
@@ -274,6 +275,57 @@ curl -X POST http://localhost:8080/v1/audio/transcriptions \
 curl -X POST http://localhost:8080/v1/audio/transcriptions \
   -F file=@recording.wav -F model=whisper-1 -F response_format=verbose_json
 ```
+
+#### Speaker diarization
+
+Add `-F diarize=true` to either transcription route to run FluidAudio's Pyannote
+Community-1 offline pipeline (powerset segmentation, WeSpeaker embeddings, and VBx
+clustering). Both STT engines are supported. The default `json` response keeps `text`
+and adds `segments`; `verbose_json` adds `speaker` to its segments and always includes
+them when diarization is enabled, even if only word timestamps were requested.
+`diarize=true` requires `json` or `verbose_json`; other formats return an OpenAI-shaped
+400 error. Omitting `diarize`, or sending `false`, preserves the existing responses.
+
+```bash
+curl -X POST http://localhost:8080/v1/audio/transcriptions \
+  -F file=@meeting.wav -F diarize=true
+```
+
+```json
+{
+  "text": "Hello. Hi.",
+  "segments": [
+    { "id": 0, "seek": 10, "start": 0.1, "end": 1.0, "text": "Hello.", "speaker": "S1", "temperature": 0, "avg_logprob": 0, "compression_ratio": 1, "no_speech_prob": 0 },
+    { "id": 1, "seek": 210, "start": 2.1, "end": 3.0, "text": "Hi.", "speaker": "S2", "temperature": 0, "avg_logprob": 0, "compression_ratio": 1, "no_speech_prob": 0 }
+  ]
+}
+```
+
+Timestamps are seconds from the start of the uploaded audio. Parakeet words are
+assigned to the speaker with the greatest time overlap, and adjacent words with
+the same speaker are grouped within each transcription segment. Qwen3 has no word
+timestamps, so whole transcription segments receive the speaker with the greatest
+total overlap; speaker changes inside those segments cannot be resolved. Ties go to
+the first speaker chronologically. Unmatched speech is labeled `unknown`. Speaker
+IDs are local to each recording, not identities across recordings. The pipeline
+uses exclusive speaker turns, so overlapping dialogue is not represented as
+multiple simultaneous speakers. The top-level transcript is preserved.
+
+Diarization models download and load on the first non-silent diarized request, then
+remain cached on disk and reused in memory. Ordinary requests do not load them.
+Audio is converted to disk-backed 16 kHz samples, embedding batches are limited to
+one, and diarization requests run serially after transcription to reduce peak RAM.
+The offline pipeline still retains segmentation and clustering data proportional
+to recording length, so processing very long recordings needs additional memory.
+FluidAudio 0.13.5 selects Core ML `.all` for segmentation, embeddings, and PLDA
+(allowing Apple's Neural Engine wherever supported), and CPU-only fbank extraction.
+Its offline loader currently ignores compute-unit overrides. No Python, MLX, or
+additional GPU packages are required. The first request may take longer while models
+download; failures use the existing OpenAI error envelope.
+
+Mock-based diarization tests run with `swift test`. To also download/load the real
+Community-1 models and run the file-processing smoke test, use
+`TEST_DIARIZATION_MODELS=1 swift test --filter DiarizationIntegrationTests`.
 
 ### Text-to-Speech
 
