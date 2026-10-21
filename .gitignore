@@ -63,3 +63,6 @@ fastlane/test_output
 
 # Local config file (may contain private IPs or personal settings)
 speech-server.yaml
+
+# Mac application distribution output
+dist/
