@@ -249,7 +249,7 @@ Content-Type: multipart/form-data
 | `response_format` | String | No       | `json` (default), `text`, or `verbose_json`; `srt`/`vtt` return 400 |
 | `temperature`     | Double | No       | Sampling temperature, 0.0-1.0                      |
 
-Supported audio formats: WAV, MP3, M4A, FLAC, AIFF, OGG. Files without a recognised extension are identified automatically via magic bytes.
+Supported audio formats: anything Core Audio decodes, including WAV, MP3, M4A, AAC (ADTS), FLAC, AIFF and OGG. The format is detected from the file's content; the uploaded filename is ignored.
 
 No API key is required. If your client sends an `Authorization` header it is silently ignored.
 
@@ -411,7 +411,6 @@ Sources/speech-server/
     STTService.swift               # STT protocol + DI
     FluidSTTService.swift          # FluidAudio ASR implementation (parakeet engine)
     Qwen3STTService.swift          # FluidAudio Qwen3 ASR implementation (qwen3 engine)
-    AudioFormatDetection.swift     # Magic-byte audio format detection
     TTSService.swift               # TTS protocol + DI
     FluidTTSService.swift          # FluidAudio PocketTTS implementation (pocket_tts engine)
     AVSpeechTTSService.swift       # macOS AVSpeechSynthesizer implementation (avspeech engine)
