@@ -17,7 +17,12 @@ final class FluidTTSService: TTSService, @unchecked Sendable {
 
     func initialize(settings: PocketTtsSettings = PocketTtsSettings()) async throws {
         sanitizeEmoji = settings.sanitizeEmoji
-        let manager = PocketTtsManager()
+        let placement: PocketTtsModelPlacement =
+            switch settings.placement {
+            case .ane: .ane
+            case .gpu: .gpu
+            }
+        let manager = PocketTtsManager(placement: placement)
         try await manager.initialize()
         self.pocketTtsManager = manager
     }
