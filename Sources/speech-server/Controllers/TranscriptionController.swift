@@ -27,19 +27,11 @@ struct TranscriptionController: RouteCollection {
             guard let fieldName = state.currentFieldName else { return }
 
             if fieldName == "file" {
-                if state.fileHeaderBytes.count < 12 {
-                    let needed = 12 - state.fileHeaderBytes.count
-                    let available = min(needed, bodyChunk.readableBytes)
-                    if let bytes = bodyChunk.getBytes(at: bodyChunk.readerIndex, length: available) {
-                        state.fileHeaderBytes.append(contentsOf: bytes)
-                    }
-                }
-
                 if state.fileOutputStream == nil {
                     let filename = state.currentFileName ?? "upload"
-                    let ext = audioFileExtension(filename: filename, header: state.fileHeaderBytes)
-                    let url = FileManager.default.temporaryDirectory
-                        .appendingPathComponent("\(UUID().uuidString)\(ext)")
+                    // No extension: Core Audio then identifies the format from the file's content. A wrong
+                    // extension (e.g. a WAV named .mp3) would make decoding fail.
+                    let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
                     state.fileTempURL = url
                     state.uploadedFileName = filename
                     let stream = OutputStream(url: url, append: false)
@@ -204,7 +196,6 @@ private final class MultipartParseState {
     var fileOutputStream: OutputStream?
     var fileTempURL: URL?
     var uploadedFileName: String?
-    var fileHeaderBytes = Data()
     var fileSize = 0
 
     func stringField(_ name: String) -> String? {

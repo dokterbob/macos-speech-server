@@ -146,6 +146,50 @@ final class TranscriptionIntegrationTests: XCTestCase {
         }
     }
 
+    func testADTSAACTranscription() async throws {
+        let aac = try fixture("test", "aac")
+        let body = transcriptionBody(file: aac, filename: "voice.aac")
+
+        try await app.test(
+            .POST, "/audio/transcriptions",
+            headers: transcriptionHeaders(),
+            body: ByteBuffer(data: body)
+        ) { res async throws in
+            XCTAssertEqual(res.status, .ok)
+            let decoded = try res.content.decode(TranscriptionResponseJSON.self)
+            XCTAssertFalse(decoded.text.isEmpty, "ADTS AAC transcription should produce non-empty text")
+        }
+    }
+
+    func testFormatIsDetectedFromContentNotFilename() async throws {
+        let body = transcriptionBody(file: try fixtureWAV, filename: "recording.mp3")
+
+        try await app.test(
+            .POST, "/audio/transcriptions",
+            headers: transcriptionHeaders(),
+            body: ByteBuffer(data: body)
+        ) { res async throws in
+            XCTAssertEqual(res.status, .ok)
+            let decoded = try res.content.decode(TranscriptionResponseJSON.self)
+            XCTAssertFalse(decoded.text.isEmpty, "A WAV upload named .mp3 should still be decoded as WAV")
+        }
+    }
+
+    func testUploadWithoutFilenameExtension() async throws {
+        let m4a = try fixture("test_long", "m4a")
+        let body = transcriptionBody(file: m4a, filename: "blob")
+
+        try await app.test(
+            .POST, "/audio/transcriptions",
+            headers: transcriptionHeaders(),
+            body: ByteBuffer(data: body)
+        ) { res async throws in
+            XCTAssertEqual(res.status, .ok)
+            let decoded = try res.content.decode(TranscriptionResponseJSON.self)
+            XCTAssertFalse(decoded.text.isEmpty, "An upload without an extension should be decoded from its content")
+        }
+    }
+
     func testLongM4ATranscription() async throws {
         let m4a = try fixture("test_long", "m4a")
         let body = transcriptionBody(file: m4a, filename: "test_long.m4a")
