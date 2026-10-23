@@ -233,6 +233,8 @@ Deployment is handled entirely by Homebrew -- see [Installation](#installation).
 
 All endpoints are available at both `/audio/*` and `/v1/audio/*` (OpenAI compatibility).
 
+`GET /health` returns `{"status":"ok","ready":true}` after all configured models have loaded and routes are ready.
+
 ### Speech-to-Text
 
 ```
