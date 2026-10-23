@@ -73,7 +73,9 @@ struct MockSTTService: STTService {
         self.shouldFail = shouldFail
     }
 
-    func transcribe(audioURL: URL) async throws -> TranscriptionResult {
+    let supportedLanguages = ["en"]
+
+    func transcribe(audioURL: URL, language: String?) async throws -> TranscriptionResult {
         if shouldFail { throw MockServiceError.failed }
         return TranscriptionResult(text: transcript, duration: 1.0, words: [], segments: [])
     }
