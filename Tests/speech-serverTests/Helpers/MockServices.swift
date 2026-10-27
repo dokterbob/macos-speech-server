@@ -1,3 +1,4 @@
+import FluidAudio
 import Foundation
 
 @testable import speech_server
@@ -76,6 +77,20 @@ struct MockSTTService: STTService {
     func transcribe(audioURL: URL) async throws -> TranscriptionResult {
         if shouldFail { throw MockServiceError.failed }
         return TranscriptionResult(text: transcript, duration: 1.0, words: [], segments: [])
+    }
+}
+
+// MARK: - Decoding STT Service
+
+/// Decodes the uploaded file exactly as `FluidSTTService` does (FluidAudio's `AudioSourceFactory`, which opens it with
+/// `AVAudioFile`), without loading any ASR model. The result's `duration` is the decoded audio length, so tests can
+/// check that an upload was decodable.
+struct DecodingSTTService: STTService {
+    func transcribe(audioURL: URL) async throws -> TranscriptionResult {
+        let (source, _) = try AudioSourceFactory().makeDiskBackedSource(from: audioURL, targetSampleRate: 16000)
+        defer { source.cleanup() }
+        return TranscriptionResult(
+            text: "", duration: Double(source.sampleCount) / 16000, words: [], segments: [])
     }
 }
 

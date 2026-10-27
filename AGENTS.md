@@ -355,7 +355,7 @@ Both `http.host` and `wyoming.host` are independently configurable — they do n
 | `KokoroConfigTests.swift` | YAML parsing for `kokoro` engine and `KokoroSettings` | No |
 | `KokoroTTSServiceTests.swift` | Real `KokoroTTSService` (Kokoro CoreML models) | Yes |
 | `Qwen3ConfigTests.swift` | YAML parsing for `qwen3` engine and `Qwen3STTSettings` | No |
-| `Helpers/MockServices.swift` | `MockTTSService` + `MockSTTService` for session tests | No |
+| `Helpers/MockServices.swift` | `MockTTSService` + `MockSTTService` for session tests; `DecodingSTTService` decodes uploads like `FluidSTTService` without a model | No |
 
 ### Error handling
 
@@ -423,6 +423,7 @@ swift test --filter ServerConfig  # run a specific test class
 | `Helpers/TestApp.swift` | Helper | `sharedTestApp()` singleton, multipart builder, word-overlap helper. Uses a temp `{}` YAML file to suppress local `speech-server.yaml`. Registers `AppShutdownObserver` (via `XCTestObservationCenter`) to call `app.asyncShutdown()` at bundle finish — required because `ServeCommand` has a `deinit` assertion that fires if its async shutdown was never called. |
 | `ServerConfigTests.swift` | Unit | YAML parsing, defaults — no models needed |
 | `SpeechRequestTests.swift` | Unit | `SpeechRequest` resolved defaults — no models needed |
+| `UploadFormatTests.swift` | Unit | Every format in `Fixtures/formats` decodes under its own, a wrong, an uppercase or no extension (`DecodingSTTService`) — no models needed |
 | `TranscriptionIntegrationTests.swift` | Integration | Real STT pipeline via Vapor test client |
 | `SpeechIntegrationTests.swift` | Integration | Real TTS pipeline via Vapor test client |
 | `RoundTripIntegrationTests.swift` | Integration | TTS→STT round-trip similarity check |
