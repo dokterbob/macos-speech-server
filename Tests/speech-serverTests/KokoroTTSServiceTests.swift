@@ -4,7 +4,7 @@ import XCTest
 
 /// Tests for KokoroTTSService.
 ///
-/// These tests exercise the real KokoroTtsManager from FluidAudio.
+/// These tests exercise the real KokoroAneManager from FluidAudio.
 /// Model download is required on first run and cached after that.
 final class KokoroTTSServiceTests: XCTestCase {
     // nonisolated(unsafe): initialization is serialized via DispatchSemaphore in setUp.
@@ -72,6 +72,24 @@ final class KokoroTTSServiceTests: XCTestCase {
         let customService = KokoroTTSService()
         try await customService.initialize(settings: settings)
         XCTAssertEqual(customService.defaultVoice, "am_adam")
+    }
+
+    func testUnknownDefaultVoiceIsRejected() async {
+        var settings = KokoroSettings()
+        settings.defaultVoice = "zz_unknown"
+        let customService = KokoroTTSService()
+        do {
+            try await customService.initialize(settings: settings)
+            XCTFail("Expected voiceNotFound error")
+        }
+        catch let error as KokoroTTSError {
+            guard case .voiceNotFound("zz_unknown") = error else {
+                return XCTFail("Unexpected KokoroTTSError: \(error)")
+            }
+        }
+        catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
     }
 
     // MARK: - synthesize
