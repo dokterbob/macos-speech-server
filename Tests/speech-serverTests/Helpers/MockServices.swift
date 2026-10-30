@@ -74,7 +74,9 @@ struct MockSTTService: STTService {
         self.shouldFail = shouldFail
     }
 
-    func transcribe(audioURL: URL) async throws -> TranscriptionResult {
+    let supportedLanguages = ["en"]
+
+    func transcribe(audioURL: URL, language: String?) async throws -> TranscriptionResult {
         if shouldFail { throw MockServiceError.failed }
         return TranscriptionResult(text: transcript, duration: 1.0, words: [], segments: [])
     }
@@ -86,7 +88,9 @@ struct MockSTTService: STTService {
 /// `AVAudioFile`), without loading any ASR model. The result's `duration` is the decoded audio length, so tests can
 /// check that an upload was decodable.
 struct DecodingSTTService: STTService {
-    func transcribe(audioURL: URL) async throws -> TranscriptionResult {
+    let supportedLanguages = ["en"]
+
+    func transcribe(audioURL: URL, language: String?) async throws -> TranscriptionResult {
         let (source, _) = try AudioSourceFactory().makeDiskBackedSource(from: audioURL, targetSampleRate: 16000)
         defer { source.cleanup() }
         return TranscriptionResult(
