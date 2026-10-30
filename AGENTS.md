@@ -7,14 +7,14 @@ Essential knowledge for AI agents working on this codebase.
 A macOS-native HTTP server that exposes OpenAI-compatible speech API endpoints and a Wyoming protocol server for Home Assistant integration, running entirely on-device. Built with Vapor (Swift web framework) and FluidAudio (on-device ASR via Apple's Neural Engine).
 
 - **STT** is fully implemented using FluidAudio's `AsrManager`.
-- **TTS** is fully implemented with three engines: `pocket_tts` (FluidAudio PocketTTS, `alba` only), `avspeech` (macOS built-in, 150+ voices), and `kokoro` (FluidAudio Kokoro, 50 voices across 8 languages).
+- **TTS** is fully implemented with three engines: `pocket_tts` (FluidAudio PocketTTS, `alba` only), `avspeech` (macOS built-in, 150+ voices), and `kokoro` (FluidAudio Kokoro ANE, 54 Kokoro-82M voices, English text).
 
 ## Tech stack
 
 | Component | Library | Version constraint |
 |-----------|---------|-------------------|
 | Web framework | [Vapor](https://github.com/vapor/vapor) | 4.76.0+ |
-| Speech-to-text / TTS | [FluidAudio](https://github.com/FluidInference/FluidAudio) | 0.12.4+ |
+| Speech-to-text / TTS | [FluidAudio](https://github.com/FluidInference/FluidAudio) | 0.17.7+ |
 | Multipart parsing | [multipart-kit](https://github.com/vapor/multipart-kit) | 4.0.0+ |
 | YAML parsing | [Yams](https://github.com/jpsim/Yams) | 6.0.1+ |
 | TCP networking | [swift-nio](https://github.com/apple/swift-nio) | 2.65.0+ |
@@ -63,7 +63,7 @@ ServerConfig
   ├─ servers: ServersConfig
   │   ├─ http: HTTPConfig          (host, port, uploadLimitMB)
   │   └─ wyoming: WyomingConfig    (host, port)
-  ├─ stt: STTConfig                (engine, parakeet/qwen3 settings)
+  ├─ stt: STTConfig                (parakeet settings)
   └─ tts: TTSConfig                (engine, pocket_tts/avspeech/kokoro settings)
 ```
 
@@ -75,7 +75,7 @@ Access: `config.logLevel`, `config.servers.http.host`, `config.servers.wyoming.p
 3. Add a `case` in `configure.swift`'s switch to construct and initialize the service
 4. Implement the `STTService`/`TTSService` protocol
 
-**`model_version` in `ParakeetSettings`**: mapped to `AsrModelVersion` in `configure.swift` and passed to `FluidSTTService.initialize(modelVersion:)`. Valid values: `"v3"` (Parakeet TDT 0.6B v3, multilingual, 25 languages, default) and `"v2"` (Parakeet TDT 0.6B v2, English-only, higher recall). Invalid values cause a startup error.
+**`model_version` in `ParakeetSettings`**: decoded as the `ParakeetModelVersion` enum, so an unknown value fails config parsing and the server does not start; omitted means `v3`. `ParakeetModelVersion.asrModelVersion` (in `FluidSTTService.swift`) maps it to FluidAudio's `AsrModelVersion`, which has no string raw values and includes models this server does not offer. Values: `v3` (Parakeet TDT 0.6B v3, multilingual, 25 languages, default), `ultra` (Parakeet Ultra: post-trained v3, same languages/speed/decode path, lower WER, separate ~630 MB model) and `v2` (Parakeet TDT 0.6B v2, English-only, higher recall). `redux` is not offered: it requires macOS 15 (package minimum is 14).
 
 **Partial configs work**: all fields use `decodeIfPresent` with defaults, so a minimal `speech-server.yaml` with only `stt:\n  engine: parakeet` is valid.
 
@@ -121,8 +121,12 @@ O(chunk_size) during upload:
 
 1. On init: downloads ASR models v3 and loads VAD model (slow on first run, cached after).
 2. On transcribe: converts audio to 16 kHz mono Float32 via `DiskBackedAudioSampleSource`
-   (streaming, O(chunk) RAM), runs VAD in 4096-sample chunks to find speech segments, then
-   calls `asrManager.transcribe([Float], source: .system)` on each segment.
+   (streaming, O(chunk) RAM) and runs VAD in 4096-sample chunks. No speech → empty result, no ASR.
+   Otherwise ASR runs **once over the whole audio** (`asrManager.transcribeDiskBacked`, which decodes
+   >15s audio in overlapping windows). `TranscriptSegmentation.swift` merges tokens into words and
+   groups words into VAD speech regions (max overlap, else nearest); regions without words yield no
+   segment. Do not decode VAD segments in isolation: Parakeet often returns empty text for short
+   (~2s) isolated clips that decode fine with surrounding speech.
 3. Returns `TranscriptionResult` (text + duration + words + segments) -- not a bare `String`.
 4. Must call `initialize()` before first use -- will throw `FluidSTTError.notInitialized` otherwise.
 
@@ -131,29 +135,12 @@ O(chunk_size) during upload:
   count (not zero-padded to `chunkSize`). FluidAudio applies repeat-last-sample padding
   internally; passing zeros creates an artificial silence cliff that causes premature
   speech-end detection and shorter segments.
-- `asrManager.transcribe` requires **>= 16,000 samples** (1 second). VAD segments shorter
-  than this must be zero-padded to 16,000 before the call or it throws `ASRError.invalidAudioData`.
+- ASR requires **>= 16,000 samples** (1 second). Audio shorter than this is zero-padded to
+  16,000 in memory before `asrManager.transcribe`, or it throws `ASRError.invalidAudioData`.
   Zero-padding the tail is safe -- the model handles trailing silence natively.
 
-Use `source: .system` for file/API transcription, `source: .microphone` for live capture.
-
-### Qwen3STTService
-
-`Qwen3STTService` wraps FluidAudio's `Qwen3AsrManager` (encoder-decoder ASR, 30+ languages):
-
-1. On init: takes optional `language` hint (ISO 639-1 code, e.g. `"en"`).
-2. On initialize: downloads Qwen3 CoreML models via `Qwen3AsrModels.download(variant:)` (cached at `~/Library/Application Support/FluidAudio/Models/`), creates `Qwen3AsrManager()`, calls `manager.loadModels(from:)`.
-3. On transcribe: converts audio to 16 kHz mono via `DiskBackedAudioSampleSource`, runs VAD to find speech segments (same as `FluidSTTService`), calls `manager.transcribe(audioSamples:language:)` on each segment. The 30-second max audio limit is enforced per segment.
-4. Returns `TranscriptionResult` with segment-level timing from VAD but **no word-level timestamps** (Qwen3 returns plain text).
-5. Must call `initialize()` before first use — will throw `Qwen3STTError.notInitialized` otherwise.
-6. `@available(macOS 15, *)` — requires macOS 15+ for CoreML features used by Qwen3.
-7. `@unchecked Sendable` because `Qwen3AsrManager` is an actor.
-
-**Language hinting**: Unlike Parakeet (which auto-detects language with no way to override), Qwen3 accepts an explicit `language` parameter. Setting `language: "en"` forces English decoding, which can improve accuracy for non-American English accents (e.g. British English) by preventing the multilingual model from misinterpreting accent features as other languages.
-
-**Model variants**: `Qwen3AsrVariant.int8` (~900 MB, default) and `.f32` (~1.75 GB). Configured via `variant` in YAML.
-
-**Errors**: `Qwen3STTError.notInitialized`, `Qwen3STTError.audioConversionFailed(Error)`, `Qwen3STTError.audioTooShort`, `Qwen3STTError.unsupportedPlatform`.
+FluidAudio 0.15.3 removed the Qwen3 ASR API; the server no longer advertises or accepts a `qwen3`
+engine.
 
 ### FluidTTSService
 
@@ -235,17 +222,15 @@ delivers zero samples (e.g. empty utterance after preprocessing).
 
 ### KokoroTTSService
 
-`KokoroTTSService` wraps FluidAudio's `KokoroTtsManager` (50 voices, 8 languages, 24 kHz):
+`KokoroTTSService` wraps FluidAudio's `KokoroAneManager` (7-stage Core ML chain, 24 kHz):
 
-1. On init (`initialize(settings:)`): creates `KokoroTtsManager(defaultVoice:)`, calls `manager.initialize()` (downloads Kokoro CoreML models on first run, cached at `~/.cache/fluidaudio/Models/kokoro`), sets `defaultVoice` from settings or `TtsConstants.recommendedVoice` (`"af_heart"`).
+1. On init (`initialize(settings:)`): validates the configured voice against `KokoroAneConstants.englishVoices` (default `af_heart`), creates `KokoroAneManager`, and calls `initialize()`.
 2. On synthesize (`synthesize`): validates voice against `availableVoices`, calls `manager.synthesize()` which returns WAV data directly (no manual PCM conversion needed).
-3. On streaming (`synthesizeStream`): validates voice first (returns stream that immediately throws on invalid voice), splits text into sentences with `detectSentences()`, calls `manager.synthesizeDetailed()` per sentence, collects all samples from `result.chunks.flatMap { $0.samples }`, converts via `float32ToPCM16()`, yields one PCM chunk per sentence.
+3. On streaming (`synthesizeStream`): validates voice first, splits text into sentences, calls `manager.synthesizeDetailed()` per sentence, converts `result.samples` via `float32ToPCM16()`, and yields one PCM chunk per sentence.
 4. Must call `initialize()` before first use — will throw `KokoroTTSError.notInitialized` otherwise.
-5. `@unchecked Sendable` because `KokoroTtsManager` is not `Sendable`. All stored properties besides the manager are immutable.
+5. `@unchecked Sendable` guards mutable service initialization state; `KokoroAneManager` itself is an actor.
 
-**Voice list**: `TtsConstants.availableVoices` (50 voices, sorted alphabetically in `availableVoices` property). American English voices (`af_*`, `am_*`) are production quality; other languages are experimental.
-
-**`manager.synthesize()` returns WAV directly**: unlike PocketTTS which returns raw samples via `synthesizeDetailed().samples`, `KokoroTtsManager.synthesize()` returns a complete WAV `Data`. For streaming, `synthesizeDetailed()` returns a `KokoroSynthesizer.SynthesisResult` with `chunks: [ChunkInfo]`, each with `samples: [Float]`.
+Unsupported configured voices fail before model loading. `manager.synthesize()` returns complete WAV data; `synthesizeDetailed()` exposes raw samples for streaming.
 
 **Errors**: `KokoroTTSError.notInitialized` and `KokoroTTSError.voiceNotFound(String)`.
 
@@ -309,7 +294,7 @@ recording ──audio-stop──→ [call STTService.transcribe, send transcript
 any state ──describe──→ [send info with both asr + tts capabilities] (state unchanged)
 ```
 
-The `info` response advertises both `asr` and `tts` arrays so Home Assistant knows this single port handles both services. The TTS program includes `supports_synthesize_streaming: true` to advertise HA 2025.07+ streaming support. ASR model name and language list are driven by `STTInfo` (passed through `WyomingServer` → `WyomingSession`), with static presets `.parakeet` and `.qwen3`.
+The `info` response advertises both `asr` and `tts` arrays so Home Assistant knows this single port handles both services. The TTS program includes `supports_synthesize_streaming: true` to advertise HA 2025.07+ streaming support. ASR model name and the 25 Parakeet v3 language codes are driven by `STTInfo` (passed through `WyomingServer` → `WyomingSession`).
 
 **Streaming TTS**: `handle(event:)` returns `AsyncStream<Data>` (non-async). For `synthesize`, the stream yields `audio-start` + each `audio-chunk` + `audio-stop` incrementally as TTS chunks arrive — `audio-start` is withheld until the first chunk so a completely failed synthesis sends nothing. State mutations (e.g. `state = .awaitingAudio`) happen synchronously before the stream is returned, so callers can immediately make the next `handle` call without draining the stream first. All other event types pre-fill the stream synchronously and finish immediately.
 
@@ -349,12 +334,12 @@ Both `http.host` and `wyoming.host` are independently configurable — they do n
 | `WyomingSessionTests.swift` | describe→info, synthesize→audio sequence, STT flow, errors, streaming order, streaming synthesis (mock services) | No |
 | `WyomingServerTests.swift` | Connection lifecycle over a real TCP socket via `WyomingServer.makeBootstrap` on an ephemeral port: the server answers, then closes after the client half-closes (mock services) | No |
 | `SentenceDetectionTests.swift` | `splitCompleteSentences` / `detectSentences` free functions | No |
+| `TranscriptSegmentationTests.swift` | `mergeTokensIntoWords` / `segmentWords` (word→VAD region grouping) | No |
 | `AVSpeechConfigTests.swift` | YAML parsing for `avspeech` engine and `AVSpeechSettings` | No |
 | `PCMConversionTests.swift` | `float32ToPCM16` and `makeWAV` utilities | No |
 | `AVSpeechTTSServiceTests.swift` | Real `AVSpeechTTSService` (uses macOS system voices) | No |
 | `KokoroConfigTests.swift` | YAML parsing for `kokoro` engine and `KokoroSettings` | No |
 | `KokoroTTSServiceTests.swift` | Real `KokoroTTSService` (Kokoro CoreML models) | Yes |
-| `Qwen3ConfigTests.swift` | YAML parsing for `qwen3` engine and `Qwen3STTSettings` | No |
 | `Helpers/MockServices.swift` | `MockTTSService` + `MockSTTService` for session tests; `DecodingSTTService` decodes uploads like `FluidSTTService` without a model | No |
 
 ### Error handling
@@ -434,12 +419,12 @@ swift test --filter ServerConfig  # run a specific test class
 | `WyomingSessionTests.swift` | Unit | Wyoming session with mock services — no models needed |
 | `WyomingServerTests.swift` | Unit | Wyoming server connection lifecycle over a real socket (ephemeral port, mock services) — no models needed |
 | `SentenceDetectionTests.swift` | Unit | `splitCompleteSentences` / `detectSentences` — no models needed |
+| `TranscriptSegmentationTests.swift` | Unit | Token→word merge, word→speech-region grouping — no models needed |
 | `AVSpeechConfigTests.swift` | Unit | YAML parsing for `avspeech` engine and `AVSpeechSettings` — no models needed |
 | `PCMConversionTests.swift` | Unit | `float32ToPCM16` and `makeWAV` — no models needed |
 | `AVSpeechTTSServiceTests.swift` | Unit | Real `AVSpeechTTSService` using macOS system voices — no models needed |
 | `KokoroConfigTests.swift` | Unit | YAML parsing for `kokoro` engine and `KokoroSettings` — no models needed |
 | `KokoroTTSServiceTests.swift` | Integration | Real `KokoroTTSService` with Kokoro CoreML models |
-| `Qwen3ConfigTests.swift` | Unit | YAML parsing for `qwen3` engine and `Qwen3STTSettings` — no models needed |
 | `Helpers/MockServices.swift` | Helper | MockTTSService + MockSTTService |
 
 **First run**: integration tests load real FluidAudio models (STT + TTS). Model download takes several minutes; subsequent runs use the on-disk cache and start in seconds. The shared app singleton (`_appTask` in `TestApp.swift`) ensures models are initialized once per `swift test` invocation.
