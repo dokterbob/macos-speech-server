@@ -46,6 +46,20 @@ curl -sf -X POST http://127.0.0.1:8080/v1/audio/speech \
 
 By default the server only listens on `127.0.0.1` (HTTP port 8080, Wyoming port 10300; set `wyoming.port: 0` to disable Wyoming). To reach it from other machines, change `servers.http.host` / `servers.wyoming.host` -- see [Accessing from other machines](#accessing-from-other-machines).
 
+### Optional Mac app (Homebrew formula preview)
+
+The native app adds guided setup, settings, service controls, logs and speech tests. It is a
+separate formula for Apple Silicon on macOS 15+, with its own bundled server; the CLI formula
+stays independent. Once the app formula is published in the tap:
+
+```sh
+brew install dokterbob/macos-speech-server/macos-speech-server-app
+speech-server-app
+```
+
+The app uses a per-user LaunchAgent and Homebrew updates; no paid Apple account is required.
+See [the Mac app guide](docs/mac-app.md) for preview builds, service setup, upgrades and migration.
+
 ### Advanced installation
 
 Running as a system service at boot (dedicated role account), switching between the per-user and system service, and migrating from the old `deploy/` scripts are covered in [docs/install.md](docs/install.md).
