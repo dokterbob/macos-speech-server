@@ -93,7 +93,8 @@ final class FluidSTTService: STTService, @unchecked Sendable {
             let paddedLength = max(segLength, 16_000)
             var slicedSamples = [Float](repeating: 0, count: paddedLength)
             try diskSource.copySamples(into: &slicedSamples, offset: startSample, count: segLength)
-            let result = try await asrManager.transcribe(slicedSamples, source: .system)
+            var decoderState = try TdtDecoderState(decoderLayers: await asrManager.decoderLayerCount)
+            let result = try await asrManager.transcribe(slicedSamples, decoderState: &decoderState)
 
             let segOffset = vadSeg.startTime
             let rawWords = mergeTokensIntoWords(result.tokenTimings ?? [])
@@ -168,6 +169,18 @@ enum FluidSTTError: Error, CustomStringConvertible {
             return "Audio conversion failed: \(underlying)"
         case .audioTooShort:
             return "Audio file is too short to transcribe."
+        }
+    }
+}
+
+extension ParakeetModelVersion {
+    /// The FluidAudio model for this config value. FluidAudio's `AsrModelVersion` has no string raw values and
+    /// includes models this server does not offer, so the supported subset is mapped explicitly.
+    var asrModelVersion: AsrModelVersion {
+        switch self {
+        case .v2: .v2
+        case .v3: .v3
+        case .ultra: .ultra
         }
     }
 }

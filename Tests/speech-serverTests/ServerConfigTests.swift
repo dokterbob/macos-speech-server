@@ -13,7 +13,7 @@ final class ServerConfigTests: XCTestCase {
         XCTAssertEqual(config.logLevel, "notice")
         XCTAssertEqual(config.servers.http.uploadLimitMB, 500)
         XCTAssertEqual(config.stt.engine, .parakeet)
-        XCTAssertNil(config.stt.parakeet)
+        XCTAssertEqual(config.stt.parakeet.modelVersion, .v3)
         XCTAssertEqual(config.tts.engine, .pocketTts)
         XCTAssertNil(config.tts.pocketTts)
     }
@@ -84,7 +84,7 @@ final class ServerConfigTests: XCTestCase {
         XCTAssertEqual(config.logLevel, "debug")
         XCTAssertEqual(config.servers.http.uploadLimitMB, 100)
         XCTAssertEqual(config.stt.engine, .parakeet)
-        XCTAssertEqual(config.stt.parakeet?.modelVersion, "v2")
+        XCTAssertEqual(config.stt.parakeet.modelVersion, .v2)
         XCTAssertEqual(config.tts.engine, .pocketTts)
     }
 
@@ -107,7 +107,39 @@ final class ServerConfigTests: XCTestCase {
                 model_version: v2
             """
         let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
-        XCTAssertEqual(config.stt.parakeet?.modelVersion, "v2")
+        XCTAssertEqual(config.stt.parakeet.modelVersion, .v2)
+    }
+
+    func testParakeetUltraModelVersion() throws {
+        let yaml = """
+            stt:
+              parakeet:
+                model_version: ultra
+            """
+        let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
+        XCTAssertEqual(config.stt.parakeet.modelVersion, .ultra)
+    }
+
+    func testUnknownParakeetModelVersionFailsConfigParsing() {
+        for version in ["redux", "v4", ""] {
+            let yaml = """
+                stt:
+                  parakeet:
+                    model_version: "\(version)"
+                """
+            XCTAssertThrowsError(
+                try YAMLDecoder().decode(ServerConfig.self, from: yaml), "model_version '\(version)' must be rejected")
+        }
+    }
+
+    func testParakeetModelVersionsMapToFluidAudioVersions() {
+        XCTAssertEqual(ParakeetModelVersion.v2.asrModelVersion, .v2)
+        XCTAssertEqual(ParakeetModelVersion.v3.asrModelVersion, .v3)
+        XCTAssertEqual(ParakeetModelVersion.ultra.asrModelVersion, .ultra)
+    }
+
+    func testParakeetUltraAdvertisesTheV3Languages() {
+        XCTAssertEqual(STTInfo.parakeet(modelVersion: .ultra).languages, STTInfo.parakeet(modelVersion: .v3).languages)
     }
 
     func testDefaultModelVersionWhenParakeetBlockPresent() throws {
@@ -117,14 +149,13 @@ final class ServerConfigTests: XCTestCase {
               parakeet: {}
             """
         let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
-        XCTAssertEqual(config.stt.parakeet?.modelVersion, "v3")
+        XCTAssertEqual(config.stt.parakeet.modelVersion, .v3)
     }
 
     func testDefaultModelVersionWhenParakeetBlockAbsent() throws {
         let yaml = "stt:\n  engine: parakeet"
         let config = try YAMLDecoder().decode(ServerConfig.self, from: yaml)
-        // parakeet block absent → settings is nil; caller uses "v3" as default
-        XCTAssertNil(config.stt.parakeet)
+        XCTAssertEqual(config.stt.parakeet.modelVersion, .v3)
     }
 
     func testEmptyYAMLProducesAllDefaults() throws {

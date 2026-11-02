@@ -23,9 +23,9 @@ struct STTInfo: Sendable {
     let languages: [String]
 
     /// v2 = English-only, v3 = 25 European languages.
-    static func parakeet(modelVersion: String = "v3") -> STTInfo {
+    static func parakeet(modelVersion: ParakeetModelVersion = .v3) -> STTInfo {
         let langs: [String]
-        if modelVersion == "v2" {
+        if modelVersion == .v2 {
             langs = ["en"]
         }
         else {
@@ -41,16 +41,6 @@ struct STTInfo: Sendable {
             languages: langs
         )
     }
-
-    static let qwen3 = STTInfo(
-        modelName: "qwen3-asr",
-        modelDescription: "Qwen3 ASR on-device speech recognition via FluidAudio",
-        languages: [
-            "zh", "en", "yue", "ar", "de", "fr", "es", "pt", "id", "it",
-            "ko", "ru", "th", "vi", "ja", "tr", "hi", "ms", "nl", "sv",
-            "da", "fi", "pl", "cs", "fil", "fa", "el", "hu", "mk", "ro",
-        ]
-    )
 }
 
 actor WyomingSession {
