@@ -1,3 +1,4 @@
+import FluidAudio
 import Foundation
 import Logging
 
@@ -24,21 +25,10 @@ struct STTInfo: Sendable {
 
     /// v2 = English-only, v3 = 25 European languages.
     static func parakeet(modelVersion: ParakeetModelVersion = .v3) -> STTInfo {
-        let langs: [String]
-        if modelVersion == .v2 {
-            langs = ["en"]
-        }
-        else {
-            langs = [
-                "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de",
-                "el", "hu", "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk",
-                "sl", "es", "sv", "ru", "uk",
-            ]
-        }
-        return STTInfo(
+        STTInfo(
             modelName: "parakeet-tdt-0.6b",
             modelDescription: "Parakeet TDT 0.6B on-device ASR via FluidAudio",
-            languages: langs
+            languages: FluidSTTService.languages(for: modelVersion)
         )
     }
 }
@@ -338,7 +328,7 @@ actor WyomingSession {
             let audioURL = try writer.writeToTempFile()
             defer { try? FileManager.default.removeItem(at: audioURL) }
 
-            let result = try await sttService.transcribe(audioURL: audioURL)
+            let result = try await sttService.transcribe(audioURL: audioURL, language: nil)
             logger.notice("Wyoming: transcription result='\(result.text)'")
             let transcript = WyomingEvent(
                 type: "transcript",
