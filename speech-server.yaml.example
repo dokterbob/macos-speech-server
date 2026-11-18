@@ -32,6 +32,7 @@ tts:
   # PocketTTS settings (only used when engine: pocket_tts)
   pocket_tts:
     sanitize_emoji: true  # Strip emoji before synthesis (default true)
+    placement: gpu        # gpu (default) | ane (keeps the GPU free; needs a Neural Engine)
 
   # AVSpeech settings (only used when engine: avspeech)
   # Uses macOS's built-in AVSpeechSynthesizer — no model downloads, 150+ voices.

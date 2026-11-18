@@ -104,6 +104,10 @@ stt:
 tts:
   engine: pocket_tts    # pocket_tts (default) | avspeech | kokoro
 
+  pocket_tts:
+    sanitize_emoji: true
+    placement: gpu      # gpu (default) | ane (keeps the GPU free; needs a Neural Engine)
+
   # AVSpeech settings (only used when engine: avspeech)
   # avspeech:
   #   default_voice: Samantha   # Short name or full identifier; nil = system locale default
@@ -140,7 +144,7 @@ Three TTS engines are available:
 
 #### `pocket_tts` (default)
 
-Uses [FluidAudio](https://github.com/FluidInference/FluidAudio)'s PocketTTS model. Only the `alba` voice is available. Models are downloaded on first start and cached at `~/Library/Application Support/FluidAudio`.
+Uses [FluidAudio](https://github.com/FluidInference/FluidAudio)'s PocketTTS model. Only the `alba` voice is available. `placement: ane` moves synthesis off the GPU onto the Neural Engine (FluidAudio's `.ane` placement), which keeps the GPU free for other work; the default `gpu` matches FluidAudio's default and is faster per step. `ane` requires a Neural Engine, so it is unavailable in virtual machines. Models are downloaded on first start and cached at `~/Library/Application Support/FluidAudio`.
 
 #### `avspeech` — macOS built-in voices
 
