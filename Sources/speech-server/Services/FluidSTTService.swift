@@ -4,6 +4,7 @@ import Logging
 
 final class FluidSTTService: STTService, @unchecked Sendable {
     private var asrManager: AsrManager?
+    private(set) var supportedLanguages: [String] = []
     private var vadManager: VadManager?
     private var logger: Logger = {
         var l = Logger(label: "FluidSTTService")
@@ -11,17 +12,40 @@ final class FluidSTTService: STTService, @unchecked Sendable {
         return l
     }()
 
-    func initialize(modelVersion: AsrModelVersion = .v3) async throws {
-        let models = try await AsrModels.downloadAndLoad(version: modelVersion)
+    func initialize(modelVersion: ParakeetModelVersion = .v3) async throws {
+        let models = try await AsrModels.downloadAndLoad(version: modelVersion.asrModelVersion)
         let manager = AsrManager(config: .default)
         try await manager.loadModels(models)
         self.asrManager = manager
         self.vadManager = try await VadManager()
+        self.supportedLanguages = Self.languages(for: modelVersion)
     }
 
-    func transcribe(audioURL: URL) async throws -> TranscriptionResult {
+    /// ISO 639-1 codes a Parakeet model version recognizes: v2 is English-only; v3 and ultra cover
+    /// 25 European languages.
+    static func languages(for modelVersion: ParakeetModelVersion) -> [String] {
+        switch modelVersion {
+        case .v2:
+            ["en"]
+        case .v3, .ultra:
+            [
+                "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de",
+                "el", "hu", "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk",
+                "sl", "es", "sv", "ru", "uk",
+            ]
+        }
+    }
+
+    func transcribe(audioURL: URL, language: String?) async throws -> TranscriptionResult {
         guard let asrManager, let vadManager else {
             throw FluidSTTError.notInitialized
+        }
+        // Parakeet takes the hint as a script filter: output tokens are restricted to the language's script.
+        let languageHint = try language.map { code in
+            guard supportedLanguages.contains(code), let hint = Language(rawValue: code) else {
+                throw FluidSTTError.unsupportedLanguage(code)
+            }
+            return hint
         }
 
         logger.notice("Transcribing: \(audioURL.lastPathComponent)")
@@ -94,7 +118,8 @@ final class FluidSTTService: STTService, @unchecked Sendable {
             var slicedSamples = [Float](repeating: 0, count: paddedLength)
             try diskSource.copySamples(into: &slicedSamples, offset: startSample, count: segLength)
             var decoderState = try TdtDecoderState(decoderLayers: await asrManager.decoderLayerCount)
-            let result = try await asrManager.transcribe(slicedSamples, decoderState: &decoderState)
+            let result = try await asrManager.transcribe(
+                slicedSamples, decoderState: &decoderState, language: languageHint)
 
             let segOffset = vadSeg.startTime
             let rawWords = mergeTokensIntoWords(result.tokenTimings ?? [])
@@ -160,6 +185,7 @@ enum FluidSTTError: Error, CustomStringConvertible {
     case notInitialized
     case audioConversionFailed(Error)
     case audioTooShort
+    case unsupportedLanguage(String)
 
     var description: String {
         switch self {
@@ -169,6 +195,8 @@ enum FluidSTTError: Error, CustomStringConvertible {
             return "Audio conversion failed: \(underlying)"
         case .audioTooShort:
             return "Audio file is too short to transcribe."
+        case .unsupportedLanguage(let code):
+            return "Language '\(code)' is not supported by the loaded ASR model."
         }
     }
 }

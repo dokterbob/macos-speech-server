@@ -129,6 +129,55 @@ final class TranscriptionIntegrationTests: XCTestCase {
         }
     }
 
+    func testLanguageHintIsAcceptedAndReported() async throws {
+        let body = transcriptionBody(
+            file: try fixtureWAV,
+            fields: [(name: "response_format", value: "verbose_json"), (name: "language", value: "en")]
+        )
+
+        try await app.test(
+            .POST, "/v1/audio/transcriptions",
+            headers: transcriptionHeaders(),
+            body: ByteBuffer(data: body)
+        ) { res async throws in
+            XCTAssertEqual(res.status, .ok)
+            let decoded = try res.content.decode(TranscriptionResponseVerbose.self)
+            XCTAssertEqual(decoded.language, "en")
+            XCTAssertFalse(decoded.text.isEmpty)
+        }
+    }
+
+    func testLanguageAutoIsDetectedFromTranscript() async throws {
+        let body = transcriptionBody(
+            file: try fixtureWAV,
+            fields: [(name: "response_format", value: "verbose_json"), (name: "language", value: "auto")]
+        )
+
+        try await app.test(
+            .POST, "/v1/audio/transcriptions",
+            headers: transcriptionHeaders(),
+            body: ByteBuffer(data: body)
+        ) { res async throws in
+            XCTAssertEqual(res.status, .ok)
+            let decoded = try res.content.decode(TranscriptionResponseVerbose.self)
+            XCTAssertEqual(decoded.language, "en")
+        }
+    }
+
+    func testUnsupportedLanguageHintIsRejected() async throws {
+        let body = transcriptionBody(file: try fixtureWAV, fields: [(name: "language", value: "xx")])
+
+        try await app.test(
+            .POST, "/v1/audio/transcriptions",
+            headers: transcriptionHeaders(),
+            body: ByteBuffer(data: body)
+        ) { res async throws in
+            XCTAssertEqual(res.status, .badRequest)
+            let error = try res.content.decode(OpenAIErrorResponse.self)
+            XCTAssertTrue(error.error.message.contains("'xx'"))
+        }
+    }
+
     // MARK: - Format coverage
 
     func testAIFFTranscription() async throws {

@@ -103,7 +103,8 @@ struct TranscriptionController: RouteCollection {
 
         let filename = state.uploadedFileName ?? "upload"
         let responseFormat = state.stringField("response_format") ?? "json"
-        let language = state.stringField("language")
+        let language = try transcriptionLanguageHint(
+            state.stringField("language"), supported: req.sttService.supportedLanguages)
 
         if let tempStr = state.stringField("temperature"), let temp = Double(tempStr) {
             guard temp >= 0 && temp <= 1 else {
@@ -132,7 +133,7 @@ struct TranscriptionController: RouteCollection {
             "Transcription upload: filename=\(filename), size=\(state.fileSize) bytes, response_format=\(responseFormat)"
         )
 
-        let result = try await req.sttService.transcribe(audioURL: audioTempURL)
+        let result = try await req.sttService.transcribe(audioURL: audioTempURL, language: language)
 
         switch responseFormat {
         case "json":
@@ -167,7 +168,7 @@ struct TranscriptionController: RouteCollection {
                 : nil
             let verbose = TranscriptionResponseVerbose(
                 task: "transcribe",
-                language: language ?? "en",
+                language: reportedLanguage(hint: language, transcript: result.text),
                 duration: result.duration,
                 text: result.text,
                 words: words,
