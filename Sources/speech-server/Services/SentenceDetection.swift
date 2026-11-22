@@ -18,10 +18,24 @@ func splitCompleteSentences(_ text: String) -> (complete: [String], remainder: S
     tokenizer.string = text
 
     var sentences: [String] = []
+    var prevUpperBound: String.Index?
     tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
         let s = String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !s.isEmpty else { return true }
-        sentences.append(s)
+        // Merge false splits across decimals/versions/identifiers like "PM2.5" or "70.5"
+        // only when there is no whitespace between the two tokens in the original text.
+        if let prev = sentences.last,
+            let prevEnd = prevUpperBound,
+            text[prevEnd..<range.lowerBound].isEmpty,
+            prev.range(of: #"\d\.$"#, options: .regularExpression) != nil,
+            s.range(of: #"^\d"#, options: .regularExpression) != nil
+        {
+            sentences[sentences.count - 1] = prev + s
+        }
+        else {
+            sentences.append(s)
+        }
+        prevUpperBound = range.upperBound
         return true
     }
 
