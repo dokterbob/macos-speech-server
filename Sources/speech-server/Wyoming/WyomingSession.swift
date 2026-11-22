@@ -109,6 +109,12 @@ actor WyomingSession {
             }
             let newText = event.data["text"]?.stringValue ?? ""
             let combined = buffer + newText
+            // Hold if the stream ends on an ambiguous period (e.g. "PM2.", "70.", "U.")
+            // until the next token arrives so decimals/abbreviations aren't split mid-token.
+            if combined.range(of: #"(\d|\b[A-Z])\.$"#, options: .regularExpression) != nil {
+                state = .streamingSynthesize(voice: voice, textBuffer: combined)
+                return AsyncStream { continuation in continuation.finish() }
+            }
             let (completeSentences, remainder) = splitCompleteSentences(combined)
             state = .streamingSynthesize(voice: voice, textBuffer: remainder)
 

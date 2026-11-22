@@ -79,6 +79,18 @@ final class SentenceDetectionTests: XCTestCase {
         XCTAssertEqual(remainder, "Goodbye")
     }
 
+    func testSplitCompleteSentencesPreservesDecimalsAndPM25() {
+        let (complete, remainder) = splitCompleteSentences("The PM2.5 level is 4.5 today.")
+        XCTAssertEqual(complete, ["The PM2.5 level is 4.5 today."])
+        XCTAssertEqual(remainder, "")
+    }
+
+    func testSplitCompleteSentencesDoesNotMergeAcrossSpace() {
+        let (complete, remainder) = splitCompleteSentences("The temperature is 70. 5 minutes ago it was 68.")
+        XCTAssertEqual(complete, ["The temperature is 70.", "5 minutes ago it was 68."])
+        XCTAssertEqual(remainder, "")
+    }
+
     // MARK: - splitSentences
 
     func testSplitSentencesNoPunctuation() {
